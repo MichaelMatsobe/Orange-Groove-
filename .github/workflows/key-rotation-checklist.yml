@@ -1,0 +1,48 @@
+name: Key rotation checklist
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type rotate-android-upload to confirm this is a checklist run (no keys are generated in CI)"
+        required: true
+        default: ""
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm intent
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "rotate-android-upload" ]; then
+            echo "Refusing to run — set input confirm=rotate-android-upload"
+            exit 1
+          fi
+
+      - name: Verify gitignore protects keystores
+        run: |
+          set -e
+          grep -q '\*\.jks' .gitignore
+          grep -q 'key.properties' .gitignore
+          echo "OK: .gitignore covers keystores and key.properties"
+
+      - name: Print rotation steps
+        run: |
+          cat <<'EOF'
+          === Android upload key rotation (CI checklist) ===
+          Private keys are NOT generated on this runner.
+
+          On a secure local machine:
+            1. bash scripts/rotate-android-upload-key.sh
+            2. Play Console → App signing → request upload key reset if needed
+            3. Submit the new *.pem certificate to Google
+            4. bash scripts/keystore-to-base64.sh <new.jks>
+            5. Update GitHub secrets ANDROID_KEYSTORE_*
+            6. npm run android:verify-signing
+            7. npm run android:bundle  (or Actions → Android → bundle)
+            8. Destroy old keystore copies after cutover
+
+          Docs: docs/KEY_ROTATION.md  docs/SECURITY_SIGNING.md
+          EOF

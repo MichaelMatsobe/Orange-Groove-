@@ -1,103 +1,89 @@
-# Build an Android APK (Orange Groove)
+# Build an Android APK / AAB (Orange Groove)
 
-This guide turns the web app into an installable **APK** using Capacitor + Android Studio.
+End-to-end guide: local debug APK, **automated Gradle release signing**, and **GitHub Actions CI/CD**.
 
-The repo does **not** include the `android/` folder until you generate it once on your machine.
+The `android/` folder is generated on your machine (`npx cap add android`) and is gitignored.
 
 ---
 
-## What you need
+## Prerequisites
 
 | Tool | Notes |
 |------|--------|
 | Node.js 18+ | `node -v` |
-| npm | comes with Node |
-| [Android Studio](https://developer.android.com/studio) | with Android SDK |
-| JDK 17 | Android Studio usually installs one |
-| Android phone or emulator | USB debugging on for physical device |
-
-Optional for Play Store: Google Play Console account + a release keystore.
+| npm | with lockfile support |
+| [Android Studio](https://developer.android.com/studio) | SDK + platform-tools |
+| JDK 17 | Android Studio’s embedded JDK is fine |
+| `keytool` | ships with the JDK |
 
 ---
 
-## 1. Install dependencies and build the web app
+## Quick commands (after first setup)
+
+```bash
+npm run android:debug     # debug APK via scripts/build-android.sh
+npm run android:release   # signed release APK (needs key.properties + .jks)
+npm run android:bundle    # signed Play Store AAB
+npm run android:setup-signing   # wire Gradle signing into android/
+```
+
+---
+
+## 1. First-time local setup
 
 ```bash
 git clone https://github.com/MichaelMatsobe/Orange-Groove-.git
 cd Orange-Groove-
 npm install
 npm run build
-```
-
-Confirm `dist/` exists and contains `index.html`.
-
----
-
-## 2. Add the Android project (once)
-
-```bash
 npx cap add android
-npx cap sync
+npx cap sync android
 ```
 
-This creates `android/` (gitignored by default — do not commit secrets).
+Confirm:
 
-**After any future web change:**
-
-```bash
-npm run build
-npx cap sync
-```
+- `dist/index.html` exists  
+- `android/app/build.gradle` (or `.kts`) exists  
 
 ---
 
-## 3. Open in Android Studio
+## 2. Debug APK (no signing secrets)
+
+### One-liner script
 
 ```bash
-npx cap open android
+npm run android:debug
 ```
 
-Or: Android Studio → **File → Open** → select the `android/` folder.
-
-Wait for **Gradle sync** to finish (bottom status bar).
-
----
-
-## 4. Debug APK (fast — for testing on your phone)
-
-### Option A — Run on a connected device
-
-1. Enable **Developer options** + **USB debugging** on the phone.  
-2. Plug in USB (or start an emulator).  
-3. In Android Studio toolbar: select your device.  
-4. Click the green **Run** ▶ button.  
-
-App installs and launches.
-
-### Option B — Build a debug APK file
-
-1. Menu: **Build → Build Bundle(s) / APK(s) → Build APK(s)**.  
-2. Wait for success → click **locate** in the notification.  
-
-Typical path:
+Output:
 
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Copy that file to the phone and open it (allow “Install unknown apps” for your file manager).
+### Android Studio
 
-Or install via USB:
+```bash
+npx cap open android
+```
+
+1. Wait for Gradle sync.  
+2. **Build → Build Bundle(s) / APK(s) → Build APK(s)**.  
+3. Or click **Run ▶** with a device/emulator selected.  
+
+### Install on phone
 
 ```bash
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Enable **USB debugging** and accept the RSA prompt on the device.
+
 ---
 
-## 5. Release APK (signed — share or sideload widely)
+## 3. Automated Gradle release signing
 
-### 5.1 Create a keystore (once — keep it safe)
+### 3.1 Create a keystore (once)
 
 ```bash
 keytool -genkey -v \
@@ -106,11 +92,22 @@ keytool -genkey -v \
   -alias orange-groove
 ```
 
-Store the `.jks` file and passwords offline. **Losing the keystore means you cannot update the same app on Play Store.**
+Put the `.jks` in the **repo root** (same level as `android/`), or adjust the path in `key.properties`.
 
-### 5.2 Point Gradle at the keystore
+**Back up** the keystore and passwords offline. Loss = you cannot update the same Play listing.
 
-Create `android/app/key.properties` (do **not** commit this file):
+### 3.2 Wire signing into the Android project
+
+```bash
+npm run android:setup-signing
+```
+
+This script:
+
+1. Copies `scripts/android/key.properties.example` → `android/key.properties` (if missing)  
+2. Appends `apply from: "../../scripts/android/signing.gradle"` to `android/app/build.gradle`  
+
+### 3.3 Edit `android/key.properties`
 
 ```properties
 storePassword=YOUR_STORE_PASSWORD
@@ -119,142 +116,186 @@ keyAlias=orange-groove
 storeFile=../orange-groove-release.jks
 ```
 
-Place `orange-groove-release.jks` next to the `android/` folder (or adjust `storeFile` path).
+`storeFile` is resolved from the **`android/`** project root (`rootProject.file`).
 
-### 5.3 Wire signing in `android/app/build.gradle`
+### 3.4 What `signing.gradle` does
 
-Near the top of `android/app/build.gradle` (Groovy) or `build.gradle.kts`, load the properties and add a `signingConfigs` / `release` block. Example (Groovy):
+File: `scripts/android/signing.gradle`
 
-```gradle
-def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('app/key.properties')
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}
+- Loads `android/key.properties` or `android/app/key.properties`  
+- Defines `signingConfigs.release`  
+- Sets `buildTypes.release.signingConfig` when the properties file exists  
+- Leaves **debug** on the default debug keystore  
 
-android {
-    // ... existing config ...
+### 3.5 Build signed release
 
-    signingConfigs {
-        release {
-            if (keystorePropertiesFile.exists()) {
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-            }
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
-            // proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-    }
-}
+```bash
+npm run android:release
+# → android/app/build/outputs/apk/release/app-release.apk
+
+npm run android:bundle
+# → android/app/build/outputs/bundle/release/app-release.aab
 ```
 
-(Exact file layout can vary slightly by Capacitor version — match the existing `android { }` block in your project.)
-
-### 5.4 Build the release APK
-
-**Android Studio**
-
-1. **Build → Generate Signed App Bundle or APK…**  
-2. Choose **APK** (or **Android App Bundle** for Play Store).  
-3. Select your keystore, alias, passwords.  
-4. Build **release**.  
-
-**CLI**
+Or manually:
 
 ```bash
 cd android
 ./gradlew assembleRelease
-```
-
-Output:
-
-```text
-android/app/build/outputs/apk/release/app-release.apk
-```
-
----
-
-## 6. Play Store (AAB, not APK)
-
-Google Play prefers an **Android App Bundle**:
-
-```bash
-cd android
 ./gradlew bundleRelease
 ```
 
-```text
-android/app/build/outputs/bundle/release/app-release.aab
-```
+### Kotlin DSL note
 
-Upload the `.aab` in [Play Console](https://play.google.com/console) → your app → Production / Testing track.
+If Capacitor generated `app/build.gradle.kts` instead of Groovy, the setup script prints a warning. Add an equivalent `signingConfigs { create("release") { ... } }` block manually using the same `key.properties` keys (see Android docs for Kotlin DSL signing).
 
-You will also need:
+### Never commit
 
-- App icon & feature graphic  
-- Screenshots  
-- Privacy policy URL  
-- Content rating questionnaire  
+Already in `.gitignore`:
+
+- `*.jks` / `*.keystore`  
+- `key.properties`  
+- `android/` (entire native tree)  
 
 ---
 
-## 7. Icons (recommended before release)
+## 4. CI/CD (GitHub Actions)
+
+Workflows live under `.github/workflows/`:
+
+| Workflow | File | Trigger | Output |
+|----------|------|---------|--------|
+| **CI** | `ci.yml` | push/PR to main | Typecheck + `npm run build` + `dist` artifact |
+| **Android** | `android.yml` | push (paths) + **workflow_dispatch** | Debug APK, or signed release APK/AAB |
+
+### 4.1 CI (web) — no secrets
+
+On every push/PR:
+
+1. `npm ci`  
+2. `npm run lint`  
+3. `npm run build`  
+4. Uploads `dist/` as artifact **web-dist**  
+
+### 4.2 Android workflow — manual or on relevant pushes
+
+**Automatic (debug):** pushes that touch `src/`, `package.json`, Capacitor config, or Android scripts run a **debug** APK build and upload **app-debug-apk**.
+
+**Manual (recommended for release):**
+
+1. GitHub repo → **Actions** → **Android APK / AAB**  
+2. **Run workflow**  
+3. Choose `debug` | `release` | `bundle`  
+4. Download the artifact when finished  
+
+### 4.3 Secrets for signed CI builds
+
+Repo → **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|--------|--------|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 orange-groove-release.jks` (Linux) or `base64 -i orange-groove-release.jks` (macOS) |
+| `ANDROID_KEYSTORE_PASSWORD` | store password |
+| `ANDROID_KEY_PASSWORD` | key password |
+| `ANDROID_KEY_ALIAS` | usually `orange-groove` |
+
+Encode keystore:
+
+```bash
+# Linux
+base64 -w0 orange-groove-release.jks | pbcopy   # or redirect to a file you paste into the secret
+
+# macOS
+base64 -i orange-groove-release.jks | pbcopy
+```
+
+The workflow:
+
+1. Builds `dist/`  
+2. `cap add android` + `cap sync` (ephemeral runner)  
+3. Decodes the keystore + writes `android/key.properties`  
+4. Runs `setup-android-signing.sh`  
+5. `assembleRelease` or `bundleRelease`  
+6. Uploads APK/AAB artifact  
+7. Deletes keystore files in a cleanup step  
+
+**Without those secrets**, only **debug** builds succeed in CI.
+
+### 4.4 Download CI artifacts
+
+Actions → selected run → **Artifacts** → download zip → unzip APK/AAB.
+
+---
+
+## 5. Play Store upload (AAB)
+
+1. Build AAB: `npm run android:bundle` or CI `bundle`  
+2. [Play Console](https://play.google.com/console) → Create app → Production or closed testing  
+3. Upload `app-release.aab`  
+4. Complete store listing (icon, screenshots, privacy policy, content rating)  
+
+Package name must stay **`com.orangegroove.app`** (see `capacitor.config.ts`) unless you change it before the first upload.
+
+---
+
+## 6. Icons before release
 
 ```bash
 npm run icons
-# optional full set:
 npm install -D @capacitor/assets
 npx capacitor-assets generate --iconBackgroundColor '#f97316'
-npx cap sync
+npx cap sync android
 ```
 
 ---
 
-## 8. Smoke test on device
+## 7. Smoke test checklist
 
-1. Install APK on **two** phones on the same Wi‑Fi (or host hotspot).  
-2. Host → **Start Party** → share code.  
-3. Guest → **Join with Party Code**.  
-4. Host → **Go Live** — both should play the same track.  
-5. Host adds a small local MP3 — guest should download then sync.  
-6. Pair a Bluetooth speaker in **phone Settings** (not in-app) and confirm audio routes.
+- [ ] Two devices, same Wi‑Fi or host hotspot  
+- [ ] Host starts party → guest joins 6-digit code  
+- [ ] Host **Go Live** → audio in sync  
+- [ ] Host adds small local MP3 → guest receives / plays  
+- [ ] BT speaker: pair in **system Settings**, confirm routing  
 
 ---
 
-## Troubleshooting
+## 8. Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| `dist/` missing / blank WebView | Run `npm run build` then `npx cap sync` |
-| Gradle sync failed | Open SDK Manager; install recommended SDK + build-tools |
-| App can’t use network / WebRTC | Check Android manifest has `INTERNET`; use HTTPS or cleartext if debugging |
-| Peers don’t connect | Same Wi‑Fi/hotspot; some guest isolation blocks client-to-client — host-mediated sync still works |
-| “App not installed” | Uninstall older build with different signature; enable unknown sources |
-| Release build unsigned | Confirm `signingConfigs.release` and `key.properties` |
-
-Cleartext / network notes: production should load the app from the packaged `dist/` assets (no remote server required for core party sync).
-
----
-
-## Related docs
-
-- `NATIVE_BUILD.md` — signing overview + iOS notes  
-- `DEPLOY.md` — web / PWA hosting  
-- `README.md` — product overview  
+| Blank WebView | `npm run build && npx cap sync android` |
+| `android/` missing | `npx cap add android` |
+| Release APK unsigned | Run `npm run android:setup-signing` + valid `key.properties` |
+| CI release fails | Set all four `ANDROID_*` secrets; re-run workflow_dispatch with `release` |
+| `storeFile` not found | Path is relative to `android/` (`../orange-groove-release.jks` for repo-root jks) |
+| Gradle SDK error | Open project once in Android Studio to install SDK packages |
+| Peers don’t join | Same network; allow local network permission on iOS/Android 13+ if prompted |
 
 ---
 
-## What this repo cannot do for you
+## 9. File map
 
-- Run Android Studio in the cloud for your account  
-- Create or store your release keystore  
-- Upload to Google Play  
+```text
+scripts/
+  build-android.sh           # debug | release | bundle pipeline
+  setup-android-signing.sh   # patches android/app/build.gradle
+  android/
+    key.properties.example
+    signing.gradle           # Gradle signingConfigs.release
+.github/workflows/
+  ci.yml                     # web lint + build
+  android.yml                # APK/AAB CI
+BUILD_APK.md                 # this file
+NATIVE_BUILD.md              # high-level native + iOS notes
+```
 
-Once `android/` exists on your machine, building an APK is a standard Capacitor → Gradle step.
+---
+
+## What stays manual on your side
+
+- Creating the keystore and passwords  
+- Adding GitHub secrets  
+- Play Console listing and upload  
+- Accepting device USB debugging prompts  
+
+Everything else (web build → Capacitor sync → Gradle assemble → CI artifacts) is automated by the scripts and workflows above.

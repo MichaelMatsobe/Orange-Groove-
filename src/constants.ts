@@ -70,15 +70,10 @@ export const DEFAULT_LIBRARY: Song[] = [
 
 export const INITIAL_REQUESTS: SongRequest[] = [];
 
-/**
- * Secure-enough party code for local/nearby sharing.
- * 6 digits (~1M combinations) + unique appId in Trystero keeps rooms isolated.
- * Codes are short-lived (only while host is online) and never stored server-side by default.
- */
+/** 6-digit private party code */
 export function generatePartyCode(): string {
-  // 6-digit numeric, avoids leading zeros looking odd by using 100000–999999
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-/** Unique Trystero app namespace — isolates Orange Groove rooms from other apps */
-export const TRYSTERO_APP_ID = 'orange-groove-secure-v5';
+/** Isolated Trystero namespace for Wi-Fi / local-network rooms */
+export const TRYSTERO_APP_ID = 'orange-groove-wifi-v6';

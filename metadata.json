@@ -1,5 +1,5 @@
 {
   "name": "Orange Groove",
-  "description": "Multi-device group-play music app. Host acts as virtual DJ controlling the master playlist and playback. Guests and additional devices sync in real-time and hear exactly what the host is playing — inspired by Xiaomi Bluetooth speaker group play.",
+  "description": "Wi-Fi multi-device group-play music party. Host is the virtual DJ. Guests join the same network (or host hotspot) with a private code and stay tightly synced — no Bluetooth required.",
   "requestFramePermissions": []
 }

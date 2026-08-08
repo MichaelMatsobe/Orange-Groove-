@@ -1,111 +1,75 @@
 # Orange Groove
 
-**Multi-device group-play music party app.**  
-The host acts as a virtual DJ. Guests and additional devices sync in real-time and hear exactly what the host is playing — inspired by Xiaomi Bluetooth speaker group play.
+**Wi‑Fi multi-device group-play music party.**  
+The host is the virtual DJ. Guests join the same network (home Wi‑Fi or the host’s mobile hotspot) with a private 6-digit code and stay tightly synchronized.
 
-## Vision
+No Bluetooth required. Works in the browser and is packageable for Android / iOS / desktop.
 
-- **Host (Virtual DJ)** — full playback, queue, and DJ controls  
-- **Guests / Devices** — join via party code and stay tightly synchronized  
-- **Downloadable** — Android, iOS, Windows, macOS, Linux  
-- **Full-stack** — React frontend + Express/Socket.IO backend
+## How it works
 
-> True Bluetooth multipoint / speaker-group play requires native Bluetooth APIs.  
-> In the web & Capacitor version we use WebRTC (Trystero) + optional Socket.IO signaling so multiple phones, tablets and desktops act as the "speakers".
+1. **Host** starts a party → gets a private 6-digit code  
+2. Everyone joins the **same Wi‑Fi** *or* the host turns on a **mobile hotspot** and guests connect to it  
+3. Guests enter the party code  
+4. Host taps **Go Live** → all devices play the same track at the same position  
 
-## Current Stack
+Transport: **Trystero (WebRTC)** over the local network. Party rooms are isolated by app ID + code.
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 19 + Vite 6 + TypeScript + Tailwind |
-| Real-time sync | Trystero (WebRTC) |
-| Backend | Express + Socket.IO |
-| Mobile packaging | Capacitor 7 |
-| Desktop packaging | Capacitor Electron **or** Tauri 2 (recommended for small binaries) |
+## Why Wi‑Fi (not Bluetooth)
 
-## Quick Start (Web)
+| | Bluetooth group play | Wi‑Fi + Orange Groove |
+|--|----------------------|------------------------|
+| Phones / tablets / laptops | Awkward | Excellent |
+| Device count | Often 2–8 | Practical 5–15+ |
+| Bandwidth | Limited | High |
+| Offline party | Yes | Yes (hotspot) |
+| Web app | Almost impossible | Native fit |
 
-```bash
-npm install
-npm run dev          # frontend on :3000
-npm run dev:server   # backend on :4000
-# or both:
-npm run dev:full
-```
-
-## Building Downloadable Apps
-
-### 1. Mobile (Android / iOS) — Capacitor
+## Quick start (web)
 
 ```bash
 npm install
-npm run build
-npx cap add android   # first time only
-npx cap add ios       # first time only (macOS required)
-npx cap sync
-npx cap open android  # opens Android Studio → build APK/AAB
-npx cap open ios      # opens Xcode → build IPA
+npm run dev
 ```
 
-Or use the convenience scripts:
+Open `http://localhost:3000` on two devices on the same network:
 
-```bash
-npm run android
-npm run ios
-```
+- Device A → **Start Party** → copy/share the code  
+- Device B → **Join with Party Code** → enter code  
+- Host → **Go Live**
 
-### 2. Desktop
+### Offline / hotspot party
 
-**Option A – Capacitor + Electron** (easiest, larger binaries ~80-150 MB)
+1. Host: Settings → Mobile hotspot → turn on  
+2. Guests: join that hotspot (Wi‑Fi name + password from host)  
+3. Both open Orange Groove → host shares party code → guests join → Go Live  
 
-```bash
-npm install @capacitor-community/electron --save-dev
-npx cap add @capacitor-community/electron
-npx cap sync
-npx cap open @capacitor-community/electron
-```
+## Stack
 
-**Option B – Tauri 2** (recommended — 3-10 MB binaries, also supports mobile in Tauri v2)
+- React 19 + Vite 6 + TypeScript + Tailwind  
+- Trystero (WebRTC P2P) for real-time sync  
+- Optional Express + Socket.IO backend (`server/`)  
+- Capacitor-ready for Android / iOS builds  
 
-```bash
-# Install Rust first: https://rustup.rs
-npm install -D @tauri-apps/cli
-npx tauri init
-# point tauri.conf.json "frontendDist" to "../dist"
-npm run build
-npx tauri build
-```
+## Scripts
 
-### 3. Progressive Web App (instant install from browser)
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Frontend |
+| `npm run dev:server` | Backend |
+| `npm run dev:full` | Both |
+| `npm run build` | Production build |
+| `npm run android` / `ios` | Capacitor native projects |
 
-The Vite build already produces a modern SPA. Add a service worker + manifest later for full PWA installability on desktop & mobile browsers.
+## Roadmap
 
-## Project Structure
-
-```
-├── src/                 # React frontend
-│   ├── components/      # HostApp, GuestApp, etc.
-│   ├── App.tsx          # Main logic + Trystero room
-│   └── ...
-├── server/              # Express + Socket.IO backend
-│   └── index.ts
-├── capacitor.config.ts
-├── package.json
-└── README.md
-```
-
-## Roadmap toward full Xiaomi-style experience
-
-- [x] Host as master player / virtual DJ
-- [x] Guests tightly synced to host track + position
-- [x] Connected device count
-- [x] Basic backend for party codes & presence
-- [ ] Capacitor Bluetooth plugins (for real speaker pairing)
-- [ ] Background audio + media session controls
-- [ ] Persistent playlists & user accounts
-- [ ] File upload / local library on host
-- [ ] Desktop installers (MSI / DMG / AppImage) via Tauri or Electron
-- [ ] App Store / Play Store release pipeline
+- [x] Host as master player / virtual DJ  
+- [x] Guests tightly synced over Wi‑Fi / hotspot  
+- [x] Private 6-digit party codes + copy/share  
+- [x] Connected device list  
+- [x] Local file upload on host  
+- [ ] Stream host local files to guests over the LAN  
+- [ ] Native “Start Hotspot” helper (Capacitor)  
+- [ ] Desktop installers (Tauri / Electron)  
 
 ## License
 

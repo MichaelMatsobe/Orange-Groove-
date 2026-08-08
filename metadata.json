@@ -1,5 +1,5 @@
 {
   "name": "Orange Groove",
-  "description": "Wi-Fi multi-device group-play music party. Host is the virtual DJ. Guests join the same network (or host hotspot) with a private code and stay tightly synced — no Bluetooth required.",
+  "description": "Wi-Fi multi-device group-play music party. Host is the virtual DJ. Guests sync in real-time over the same network or hotspot. Installable PWA.",
   "requestFramePermissions": []
 }

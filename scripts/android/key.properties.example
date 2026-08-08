@@ -1,7 +1,14 @@
-# Copy to android/key.properties (or android/app/key.properties) — NEVER commit the real file.
-# Paths are relative to the android/ module root when using the setup script defaults.
+# Copy to android/key.properties — NEVER commit the real file.
+# storeFile is relative to the android/ Gradle rootProject directory.
+#
+# Recommended keystore name: orange-groove-upload.jks (upload key for Play App Signing)
+# Create with:
+#   keytool -genkeypair -v -keystore orange-groove-upload.jks -alias orange-groove \
+#     -keyalg RSA -keysize 2048 -validity 10000 -storetype PKCS12
+#
+# See docs/SECURITY_SIGNING.md for backup, CI secrets, and Play App Signing.
 
 storePassword=change-me-store-password
 keyPassword=change-me-key-password
 keyAlias=orange-groove
-storeFile=../orange-groove-release.jks
+storeFile=../orange-groove-upload.jks

@@ -18,3 +18,9 @@ export interface SongRequest {
   status: RequestStatus;
   timestamp: number;
 }
+
+export interface ConnectedDevice {
+  peerId: string;
+  joinedAt: number;
+  label?: string;
+}

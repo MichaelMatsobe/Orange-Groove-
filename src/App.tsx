@@ -1,6 +1,11 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Orange Groove — multi-device group-play music party.
+ * Host = virtual DJ / master player.
+ * Guests + extra devices join the same room and stay tightly synced
+ * to the host's current track & position (Xiaomi-style group play model).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -11,7 +16,7 @@ import { GuestApp } from './components/GuestApp';
 import { SplashScreen } from './components/SplashScreen';
 import { Toast, ToastType } from './components/Toast';
 import { INITIAL_REQUESTS, MOCK_LIBRARY } from './constants';
-import { SongRequest, Song, RequestStatus } from './types';
+import { SongRequest, Song, RequestStatus, ConnectedDevice } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -22,13 +27,14 @@ export default function App() {
   const [requests, setRequests] = useState<SongRequest[]>(INITIAL_REQUESTS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isConnected, setIsConnected] = useState(false);
+  const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 3000);
+    const timer = setTimeout(() => setShowSplash(false), 2500);
     return () => clearTimeout(timer);
   }, []);
 
-  // Player
+  // Master player state (authoritative on host)
   const [currentSongIndex, setCurrentSongIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -38,15 +44,16 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const currentSong = MOCK_LIBRARY[currentSongIndex];
 
-  // Network
+  // Network refs
   const sendSyncRef = useRef<any>(null);
   const sendRequestRef = useRef<any>(null);
   const sendRequestsRef = useRef<any>(null);
+  const roomRef = useRef<any>(null);
 
-  // Refs for Trystero callbacks to avoid stale closures
+  // Refs to avoid stale closures inside Trystero callbacks
   const currentSongIndexRef = useRef(currentSongIndex);
   const isLiveRef = useRef(isLive);
-  
+
   useEffect(() => {
     currentSongIndexRef.current = currentSongIndex;
     isLiveRef.current = isLive;
@@ -57,41 +64,42 @@ export default function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  const toggleTheme = () => setTheme(p => p === 'dark' ? 'light' : 'dark');
+  const toggleTheme = () => setTheme(p => (p === 'dark' ? 'light' : 'dark'));
 
-  // Join
   const handleJoinParty = (role: 'host' | 'guest', code?: string) => {
     setUserRole(role);
     if (code) setPartyCode(code);
     else if (role === 'host') setPartyCode('8080');
   };
 
-  // Toast (defined early so it can be used in effects safely)
+  // Toast
   const [toast, setToast] = useState({ message: '', type: 'info' as ToastType, isVisible: false });
   const showToast = useCallback((message: string, type: ToastType) => {
     setToast({ message, type, isVisible: true });
   }, []);
   const hideToast = useCallback(() => setToast(p => ({ ...p, isVisible: false })), []);
 
-  // ==================== PLAYER LOGIC ====================
+  // ==================== MASTER PLAYER (HOST AUTHORITATIVE) ====================
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
-    
+
     sendSyncRef.current({
       currentSongIndex,
       isPlaying,
       timestamp: audioRef.current.currentTime,
       timestampAt: Date.now(),
       volume: isMuted ? 0 : volume,
-      isLive
+      isLive,
+      // Also send a lightweight device count so guests know the party size
+      deviceCount: connectedDevices.length + 1, // +1 for host itself
     });
-  }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive]);
+  }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive, connectedDevices.length]);
 
   const handleNext = useCallback(() => {
     setCurrentSongIndex(i => (i + 1) % MOCK_LIBRARY.length);
     setProgress(0);
     setIsPlaying(true);
-    setTimeout(() => broadcastSync(), 0); 
+    setTimeout(() => broadcastSync(), 0);
   }, [broadcastSync]);
 
   const handlePrevious = useCallback(() => {
@@ -106,15 +114,18 @@ export default function App() {
     setTimeout(() => broadcastSync(), 0);
   }, [broadcastSync]);
 
-  const handleSeek = useCallback((time: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = time;
-    setProgress(time);
-    broadcastSync();
-  }, [broadcastSync]);
+  const handleSeek = useCallback(
+    (time: number) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.currentTime = time;
+      setProgress(time);
+      broadcastSync();
+    },
+    [broadcastSync]
+  );
 
-  // Load new song
+  // Load new song when index changes
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentSong) return;
@@ -126,11 +137,11 @@ export default function App() {
     if (isPlaying) {
       setTimeout(() => {
         audio.play().catch(() => {});
-      }, 50);
+      }, 60);
     }
-  }, [currentSongIndex, currentSong, isPlaying]);
+  }, [currentSongIndex, currentSong]);
 
-  // Play/pause + volume
+  // Keep local audio element in sync with state
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -143,11 +154,12 @@ export default function App() {
     if (audioRef.current) setProgress(audioRef.current.currentTime);
   };
 
-  // ==================== Trystero ====================
+  // ==================== TRYSTERO ROOM (MULTI-DEVICE GROUP) ====================
   useEffect(() => {
     if (!userRole || !partyCode) return;
 
-    const room = joinRoom({ appId: 'orange-groove-v2-live' }, partyCode);
+    const room = joinRoom({ appId: 'orange-groove-v3-group' }, partyCode);
+    roomRef.current = room;
 
     const [sendSync, getSync] = room.makeAction('sync');
     const [sendRequest, getRequest] = room.makeAction('request');
@@ -163,21 +175,39 @@ export default function App() {
       }
     };
 
-    room.onPeerJoin(() => {
+    // Track devices that join / leave
+    room.onPeerJoin((peerId: string) => {
       setIsConnected(true);
+      setConnectedDevices(prev => {
+        if (prev.some(d => d.peerId === peerId)) return prev;
+        return [...prev, { peerId, joinedAt: Date.now() }];
+      });
+
       if (userRole === 'host') {
-        broadcastSync();
-        broadcastRequests();
-        showToast('New guest joined!', 'success');
+        // Immediately push current state so the new device locks onto the host
+        setTimeout(() => {
+          broadcastSync();
+          broadcastRequests();
+        }, 50);
+        showToast('New device joined the party', 'success');
       }
     });
 
+    room.onPeerLeave((peerId: string) => {
+      setConnectedDevices(prev => prev.filter(d => d.peerId !== peerId));
+      if (userRole === 'host') {
+        showToast('A device left', 'info');
+      }
+    });
+
+    // Guest receives the full request list from host
     if (userRole === 'guest') {
       getRequests((newList: any) => {
         setRequests(newList as SongRequest[]);
       });
     }
 
+    // Host receives song requests from guests
     if (userRole === 'host') {
       getRequest((req: any) => {
         setRequests(prev => {
@@ -185,32 +215,39 @@ export default function App() {
           setTimeout(broadcastRequests, 10);
           return updated;
         });
-        showToast(`New request: ${(req as SongRequest).title}`, 'info');
+        showToast(`Request: ${(req as SongRequest).title}`, 'info');
       });
     }
 
+    // Guest: lock onto host's playback (group-play style)
     if (userRole === 'guest') {
       getSync((state: any) => {
         setIsConnected(true);
-        
+
         if (state.isLive !== isLiveRef.current) {
-            setIsLive(state.isLive);
+          setIsLive(!!state.isLive);
         }
 
+        // If host is not live, guests stay silent
         if (!state.isLive) {
-            setIsPlaying(false);
-            return;
+          setIsPlaying(false);
+          return;
         }
 
+        // Track change
         if (state.currentSongIndex !== currentSongIndexRef.current) {
           setCurrentSongIndex(state.currentSongIndex);
           setProgress(0);
         }
 
-        setIsPlaying(state.isPlaying);
-        setVolume(state.volume ?? 1);
-        setIsMuted(state.volume === 0);
+        setIsPlaying(!!state.isPlaying);
+        // Guests keep their own local volume preference;
+        // they only inherit mute/zero from host if host is muted.
+        if (state.volume === 0) {
+          setIsMuted(true);
+        }
 
+        // Drift correction — keep every device within ~300 ms of the host
         const audio = audioRef.current;
         if (audio && state.currentSongIndex === currentSongIndexRef.current) {
           const delay = (Date.now() - state.timestampAt) / 1000;
@@ -224,35 +261,37 @@ export default function App() {
 
     return () => {
       room.leave();
+      roomRef.current = null;
       setIsConnected(false);
+      setConnectedDevices([]);
     };
-  }, [userRole, partyCode, broadcastSync, showToast, requests]);
+  }, [userRole, partyCode]); // intentionally lean deps — room is created once per role/code
 
-  // Host heartbeat
+  // Host continuously heartbeats the master state so late joiners lock on
   useEffect(() => {
     if (userRole !== 'host') return;
-    const id = setInterval(broadcastSync, 800);
+    const id = setInterval(broadcastSync, 700);
     return () => clearInterval(id);
   }, [broadcastSync, userRole]);
 
-  // Broadcast requests whenever host changes them
+  // When host changes the request list, push it to everyone
   useEffect(() => {
     if (userRole === 'host' && sendRequestsRef.current) {
       sendRequestsRef.current(requests);
     }
   }, [requests, userRole]);
 
-  // Request handlers
+  // ==================== REQUEST HANDLERS ====================
   const handleAddRequest = (song: Song) => {
     const isHost = userRole === 'host';
     const newReq: SongRequest = {
       id: Date.now().toString(),
       title: song.title,
       artist: song.artist,
-      requester: isHost ? 'Host' : 'Guest',
+      requester: isHost ? 'Host (DJ)' : 'Guest',
       coverUrl: song.coverUrl,
       status: isHost ? 'approved' : 'pending',
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     setRequests(prev => [newReq, ...prev]);
@@ -260,33 +299,46 @@ export default function App() {
     if (!isHost && sendRequestRef.current) {
       sendRequestRef.current(newReq);
     }
-    showToast(isHost ? 'Added to queue' : 'Request sent!', 'success');
+    showToast(isHost ? 'Added to queue' : 'Request sent to DJ', 'success');
   };
 
-  const handleApprove = async (id: string) => {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' } : r));
+  const handleApprove = (id: string) => {
+    setRequests(prev => prev.map(r => (r.id === id ? { ...r, status: 'approved' } : r)));
   };
 
-  const handleReject = async (id: string) => {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
+  const handleReject = (id: string) => {
+    setRequests(prev => prev.map(r => (r.id === id ? { ...r, status: 'rejected' } : r)));
   };
 
   const handleClearRequests = (status: RequestStatus) => {
-    if (!confirm(`Clear all ${status}?`)) return;
-    setRequests(prev => prev.map(r => r.status === status ? { ...r, status: 'rejected' } : r));
+    if (!confirm(`Clear all ${status} requests?`)) return;
+    setRequests(prev => prev.map(r => (r.status === status ? { ...r, status: 'rejected' as RequestStatus } : r)));
+  };
+
+  // Promote an approved request to now-playing (DJ power)
+  const handlePlayRequest = (req: SongRequest) => {
+    const idx = MOCK_LIBRARY.findIndex(s => s.title === req.title && s.artist === req.artist);
+    if (idx >= 0) {
+      setCurrentSongIndex(idx);
+      setProgress(0);
+      setIsPlaying(true);
+      setIsLive(true);
+      setTimeout(broadcastSync, 50);
+      showToast(`Now playing: ${req.title}`, 'success');
+    }
   };
 
   const handleGoLive = () => {
     setIsLive(true);
     setIsPlaying(true);
-    showToast('Party LIVE!', 'success');
-    setTimeout(broadcastSync, 100);
+    showToast('Party is LIVE — all devices syncing', 'success');
+    setTimeout(broadcastSync, 80);
   };
 
   const handleEndParty = () => {
     setIsLive(false);
     setIsPlaying(false);
-    showToast('Party ended', 'info');
+    showToast('Party ended — devices silenced', 'info');
     broadcastSync();
   };
 
@@ -294,6 +346,7 @@ export default function App() {
     setUserRole(null);
     setIsLive(false);
     setIsPlaying(false);
+    setConnectedDevices([]);
   };
 
   return (
@@ -308,76 +361,70 @@ export default function App() {
 
       <AnimatePresence mode="wait">
         {showSplash && (
-          <motion.div
-            key="splash"
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="fixed inset-0 z-50"
-          >
+          <motion.div key="splash" exit={{ opacity: 0 }} transition={{ duration: 0.4 }} className="fixed inset-0 z-50">
             <SplashScreen />
           </motion.div>
         )}
       </AnimatePresence>
 
       {!showSplash && !userRole && (
-        <motion.div
-          key="welcome"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-        >
+        <motion.div key="welcome" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }}>
           <WelcomeScreen onJoin={handleJoinParty} />
         </motion.div>
       )}
 
       {!showSplash && userRole === 'host' && (
         <motion.div key="host" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex flex-col">
-        <HostApp
-          requests={requests}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onClearAll={handleClearRequests}
-          onAddRequest={handleAddRequest}
-          onGoLive={handleGoLive}
-          onEndParty={handleEndParty}
-          isLive={isLive}
-          onBack={handleExit}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          partyCode={partyCode}
-          currentSong={currentSong}
-          isPlaying={isPlaying}
-          progress={progress}
-          onPlayPause={handlePlayPause}
-          onNext={handleNext}
-          onPrevious={handlePrevious}
-          onSeek={handleSeek}
-          volume={volume}
-          isMuted={isMuted}
-          onVolumeChange={setVolume}
-          onToggleMute={() => setIsMuted(p => !p)}
-        />
+          <HostApp
+            requests={requests}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onClearAll={handleClearRequests}
+            onAddRequest={handleAddRequest}
+            onPlayRequest={handlePlayRequest}
+            onGoLive={handleGoLive}
+            onEndParty={handleEndParty}
+            isLive={isLive}
+            onBack={handleExit}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            partyCode={partyCode}
+            currentSong={currentSong}
+            isPlaying={isPlaying}
+            progress={progress}
+            onPlayPause={handlePlayPause}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            onSeek={handleSeek}
+            volume={volume}
+            isMuted={isMuted}
+            onVolumeChange={setVolume}
+            onToggleMute={() => setIsMuted(p => !p)}
+            connectedDevices={connectedDevices}
+            isConnected={isConnected}
+          />
         </motion.div>
       )}
 
       {!showSplash && userRole === 'guest' && (
         <motion.div key="guest" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex flex-col">
-        <GuestApp
-          requests={requests}
-          onAddRequest={handleAddRequest}
-          onBack={handleExit}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          partyCode={partyCode}
-          currentSong={currentSong}
-          isPlaying={isPlaying}
-          progress={progress}
-          onPlayPause={handlePlayPause}
-          volume={volume}
-          isMuted={isMuted}
-          onVolumeChange={setVolume}
-          onToggleMute={() => setIsMuted(p => !p)}
-        />
+          <GuestApp
+            requests={requests}
+            onAddRequest={handleAddRequest}
+            onBack={handleExit}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            partyCode={partyCode}
+            currentSong={currentSong}
+            isPlaying={isPlaying}
+            progress={progress}
+            volume={volume}
+            isMuted={isMuted}
+            onVolumeChange={setVolume}
+            onToggleMute={() => setIsMuted(p => !p)}
+            isLive={isLive}
+            isConnected={isConnected}
+          />
         </motion.div>
       )}
 

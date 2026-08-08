@@ -1,5 +1,5 @@
 {
   "name": "Orange Groove",
-  "description": "A real-time collaborative music party app where hosts control playback and guests can request songs.",
+  "description": "Multi-device group-play music app. Host acts as virtual DJ controlling the master playlist and playback. Guests and additional devices sync in real-time and hear exactly what the host is playing — inspired by Xiaomi Bluetooth speaker group play.",
   "requestFramePermissions": []
 }

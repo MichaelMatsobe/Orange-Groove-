@@ -2,10 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Orange Groove — fully working multi-device group-play music party (web app).
- * Host = virtual DJ / master player (can also add local audio files).
- * Guests + extra devices join via party code and stay tightly synced.
- * Uses free/open-source: Trystero (WebRTC), browser File API, free sample tracks.
+ * Orange Groove — multi-device group-play music party.
+ * Host shares a private 6-digit code; guests join and stay synced.
+ * Transport: Trystero WebRTC (encrypted peer channels, isolated by appId + code).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -15,7 +14,7 @@ import { HostApp } from './components/HostApp';
 import { GuestApp } from './components/GuestApp';
 import { SplashScreen } from './components/SplashScreen';
 import { Toast, ToastType } from './components/Toast';
-import { DEFAULT_LIBRARY, INITIAL_REQUESTS, generatePartyCode } from './constants';
+import { DEFAULT_LIBRARY, INITIAL_REQUESTS, generatePartyCode, TRYSTERO_APP_ID } from './constants';
 import { SongRequest, Song, RequestStatus, ConnectedDevice } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -28,16 +27,13 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isConnected, setIsConnected] = useState(false);
   const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
-
-  // Dynamic library — starts with free samples, host can add local files
   const [library, setLibrary] = useState<Song[]>(DEFAULT_LIBRARY);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 2200);
+    const timer = setTimeout(() => setShowSplash(false), 2000);
     return () => clearTimeout(timer);
   }, []);
 
-  // Master player state (authoritative on host)
   const [currentSongIndex, setCurrentSongIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -45,24 +41,25 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const currentSong = library[currentSongIndex] ?? library[0];
+  const currentSong = library[currentSongIndex] ?? library[0] ?? DEFAULT_LIBRARY[0];
 
-  // Network refs
-  const sendSyncRef = useRef<any>(null);
-  const sendRequestRef = useRef<any>(null);
-  const sendRequestsRef = useRef<any>(null);
-  const sendLibraryRef = useRef<any>(null);
+  const sendSyncRef = useRef<((data: any) => void) | null>(null);
+  const sendRequestRef = useRef<((data: any) => void) | null>(null);
+  const sendRequestsRef = useRef<((data: any) => void) | null>(null);
   const roomRef = useRef<any>(null);
 
+  // Keep latest values for Trystero callbacks (avoid stale closures)
   const currentSongIndexRef = useRef(currentSongIndex);
   const isLiveRef = useRef(isLive);
+  const requestsRef = useRef(requests);
   const libraryRef = useRef(library);
 
   useEffect(() => {
     currentSongIndexRef.current = currentSongIndex;
     isLiveRef.current = isLive;
+    requestsRef.current = requests;
     libraryRef.current = library;
-  }, [currentSongIndex, isLive, library]);
+  }, [currentSongIndex, isLive, requests, library]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -72,60 +69,66 @@ export default function App() {
 
   const handleJoinParty = (role: 'host' | 'guest', code?: string) => {
     if (role === 'host') {
-      const newCode = generatePartyCode();
-      setPartyCode(newCode);
+      setPartyCode(generatePartyCode());
       setUserRole('host');
-    } else if (code) {
+      setRequests([]);
+      setIsLive(false);
+      setIsPlaying(false);
+      setCurrentSongIndex(0);
+    } else if (code && code.length >= 4) {
       setPartyCode(code);
       setUserRole('guest');
+      setRequests([]);
     }
   };
 
-  // Toast
   const [toast, setToast] = useState({ message: '', type: 'info' as ToastType, isVisible: false });
   const showToast = useCallback((message: string, type: ToastType) => {
     setToast({ message, type, isVisible: true });
   }, []);
   const hideToast = useCallback(() => setToast(p => ({ ...p, isVisible: false })), []);
 
-  // ==================== MASTER PLAYER ====================
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
 
+    const lib = libraryRef.current;
     sendSyncRef.current({
-      currentSongIndex,
+      currentSongIndex: currentSongIndexRef.current,
       isPlaying,
       timestamp: audioRef.current.currentTime,
       timestampAt: Date.now(),
       volume: isMuted ? 0 : volume,
-      isLive,
+      isLive: isLiveRef.current,
       deviceCount: connectedDevices.length + 1,
-      // Send serializable library metadata (URLs) so guests can load the same tracks
-      libraryMeta: library.map(s => ({
-        id: s.id,
-        title: s.title,
-        artist: s.artist,
-        coverUrl: s.coverUrl,
-        audioUrl: s.audioUrl,
-        duration: s.duration,
-        isLocal: !!s.isLocal,
-      })),
+      libraryMeta: lib
+        .filter(s => !s.isLocal)
+        .map(s => ({
+          id: s.id,
+          title: s.title,
+          artist: s.artist,
+          coverUrl: s.coverUrl,
+          audioUrl: s.audioUrl,
+          duration: s.duration,
+          isLocal: false,
+        })),
     });
-  }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive, connectedDevices.length, library]);
+  }, [userRole, isPlaying, volume, isMuted, connectedDevices.length]);
 
   const handleNext = useCallback(() => {
-    setCurrentSongIndex(i => (i + 1) % Math.max(library.length, 1));
+    const len = Math.max(libraryRef.current.length, 1);
+    setCurrentSongIndex(i => (i + 1) % len);
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
-  }, [broadcastSync, library.length]);
+  }, [broadcastSync]);
 
   const handlePrevious = useCallback(() => {
-    setCurrentSongIndex(i => (i - 1 + library.length) % Math.max(library.length, 1));
+    const len = Math.max(libraryRef.current.length, 1);
+    setCurrentSongIndex(i => (i - 1 + len) % len);
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
-  }, [broadcastSync, library.length]);
+  }, [broadcastSync]);
 
   const handlePlayPause = useCallback(() => {
     setIsPlaying(p => !p);
@@ -143,21 +146,22 @@ export default function App() {
     [broadcastSync]
   );
 
-  // Load song when index or library changes
+  // Load track when index changes
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentSong) return;
+    if (!audio || !currentSong?.audioUrl) return;
 
     audio.src = currentSong.audioUrl;
     audio.load();
     setProgress(0);
 
     if (isPlaying) {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         audio.play().catch(() => {});
-      }, 80);
+      }, 60);
+      return () => clearTimeout(t);
     }
-  }, [currentSongIndex, currentSong?.id]);
+  }, [currentSongIndex, currentSong?.id, currentSong?.audioUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -171,7 +175,6 @@ export default function App() {
     if (audioRef.current) setProgress(audioRef.current.currentTime);
   };
 
-  // Host can add local audio files (File API — free, no server needed)
   const handleAddLocalFiles = useCallback(
     (files: FileList | null) => {
       if (!files || userRole !== 'host') return;
@@ -187,7 +190,7 @@ export default function App() {
           artist: 'Local File',
           coverUrl: `https://picsum.photos/seed/${encodeURIComponent(title)}/300/300`,
           audioUrl: url,
-          duration: 180, // will be corrected when metadata loads
+          duration: 180,
           isLocal: true,
         });
       });
@@ -195,18 +198,17 @@ export default function App() {
       if (newSongs.length) {
         setLibrary(prev => [...prev, ...newSongs]);
         showToast(`Added ${newSongs.length} local track(s)`, 'success');
-        // Guests cannot play local blob URLs from the host, so we keep them host-only for now.
-        // For true multi-device local files we would need to stream or upload them.
       }
     },
     [userRole, showToast]
   );
 
-  // ==================== TRYSTERO (WebRTC P2P — free & open source) ====================
+  // ==================== SECURE TRYSTERO ROOM ====================
   useEffect(() => {
     if (!userRole || !partyCode) return;
 
-    const room = joinRoom({ appId: 'orange-groove-v4' }, partyCode);
+    // Isolated namespace + party code = private room (only people with the code can join)
+    const room = joinRoom({ appId: TRYSTERO_APP_ID }, partyCode);
     roomRef.current = room;
 
     const [sendSync, getSync] = room.makeAction('sync');
@@ -217,9 +219,9 @@ export default function App() {
     sendRequestRef.current = sendRequest;
     sendRequestsRef.current = sendRequests;
 
-    const broadcastRequests = () => {
+    const pushRequests = () => {
       if (userRole === 'host' && sendRequestsRef.current) {
-        sendRequestsRef.current(requests);
+        sendRequestsRef.current(requestsRef.current);
       }
     };
 
@@ -231,28 +233,35 @@ export default function App() {
       });
 
       if (userRole === 'host') {
+        // Immediately lock new device onto host state
         setTimeout(() => {
           broadcastSync();
-          broadcastRequests();
-        }, 80);
-        showToast('New device joined', 'success');
+          pushRequests();
+        }, 100);
+        showToast('Device joined — syncing', 'success');
       }
     });
 
     room.onPeerLeave((peerId: string) => {
       setConnectedDevices(prev => prev.filter(d => d.peerId !== peerId));
-      if (userRole === 'host') showToast('A device left', 'info');
+      if (userRole === 'host') showToast('Device left', 'info');
     });
 
     if (userRole === 'guest') {
-      getRequests((newList: any) => setRequests(newList as SongRequest[]));
+      getRequests((newList: any) => {
+        if (Array.isArray(newList)) setRequests(newList as SongRequest[]);
+      });
     }
 
     if (userRole === 'host') {
       getRequest((req: any) => {
+        if (!req?.title) return;
         setRequests(prev => {
           const updated = [req as SongRequest, ...prev];
-          setTimeout(broadcastRequests, 10);
+          // push after state settles
+          setTimeout(() => {
+            if (sendRequestsRef.current) sendRequestsRef.current(updated);
+          }, 20);
           return updated;
         });
         showToast(`Request: ${(req as SongRequest).title}`, 'info');
@@ -261,18 +270,15 @@ export default function App() {
 
     if (userRole === 'guest') {
       getSync((state: any) => {
+        if (!state) return;
         setIsConnected(true);
 
-        // Sync library metadata from host (remote tracks only)
-        if (state.libraryMeta && Array.isArray(state.libraryMeta)) {
-          const remoteOnly = state.libraryMeta.filter((s: any) => !s.isLocal);
-          if (remoteOnly.length > 0) {
-            setLibrary(prev => {
-              // Prefer host library for remote tracks
-              const localOnes = prev.filter(s => s.isLocal);
-              return [...remoteOnly, ...localOnes];
-            });
-          }
+        // Sync remote library from host
+        if (Array.isArray(state.libraryMeta) && state.libraryMeta.length > 0) {
+          setLibrary(prev => {
+            const locals = prev.filter(s => s.isLocal);
+            return [...state.libraryMeta, ...locals];
+          });
         }
 
         if (state.isLive !== isLiveRef.current) {
@@ -284,19 +290,21 @@ export default function App() {
           return;
         }
 
-        if (state.currentSongIndex !== currentSongIndexRef.current) {
-          setCurrentSongIndex(state.currentSongIndex);
+        const nextIndex = typeof state.currentSongIndex === 'number' ? state.currentSongIndex : 0;
+        if (nextIndex !== currentSongIndexRef.current) {
+          setCurrentSongIndex(nextIndex);
           setProgress(0);
         }
 
         setIsPlaying(!!state.isPlaying);
         if (state.volume === 0) setIsMuted(true);
 
+        // Drift correction
         const audio = audioRef.current;
-        if (audio && state.currentSongIndex === currentSongIndexRef.current) {
-          const delay = (Date.now() - state.timestampAt) / 1000;
+        if (audio && nextIndex === currentSongIndexRef.current && typeof state.timestamp === 'number') {
+          const delay = (Date.now() - (state.timestampAt || Date.now())) / 1000;
           const expected = state.timestamp + delay;
-          if (Math.abs(audio.currentTime - expected) > 0.35 && audio.readyState >= 2) {
+          if (Math.abs(audio.currentTime - expected) > 0.4 && audio.readyState >= 2) {
             audio.currentTime = Math.max(0, expected);
           }
         }
@@ -304,31 +312,38 @@ export default function App() {
     }
 
     return () => {
-      room.leave();
+      try {
+        room.leave();
+      } catch {
+        /* ignore */
+      }
       roomRef.current = null;
+      sendSyncRef.current = null;
+      sendRequestRef.current = null;
+      sendRequestsRef.current = null;
       setIsConnected(false);
       setConnectedDevices([]);
     };
-  }, [userRole, partyCode]);
+  }, [userRole, partyCode, broadcastSync, showToast]);
 
-  // Host heartbeat
+  // Host heartbeat keeps guests locked in
   useEffect(() => {
     if (userRole !== 'host') return;
-    const id = setInterval(broadcastSync, 650);
+    const id = setInterval(broadcastSync, 700);
     return () => clearInterval(id);
   }, [broadcastSync, userRole]);
 
+  // Push request list when host changes it
   useEffect(() => {
     if (userRole === 'host' && sendRequestsRef.current) {
       sendRequestsRef.current(requests);
     }
   }, [requests, userRole]);
 
-  // ==================== HANDLERS ====================
   const handleAddRequest = (song: Song) => {
     const isHost = userRole === 'host';
     const newReq: SongRequest = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       title: song.title,
       artist: song.artist,
       requester: isHost ? 'Host (DJ)' : 'Guest',
@@ -343,7 +358,7 @@ export default function App() {
     if (!isHost && sendRequestRef.current) {
       sendRequestRef.current(newReq);
     }
-    showToast(isHost ? 'Added to queue' : 'Request sent to DJ', 'success');
+    showToast(isHost ? 'Added to queue' : 'Request sent to host', 'success');
   };
 
   const handleApprove = (id: string) => {
@@ -368,24 +383,24 @@ export default function App() {
       setProgress(0);
       setIsPlaying(true);
       setIsLive(true);
-      setTimeout(broadcastSync, 50);
+      setTimeout(broadcastSync, 40);
       showToast(`Now playing: ${req.title}`, 'success');
     } else {
-      showToast('Track not found in library', 'warning');
+      showToast('Track not in library', 'warning');
     }
   };
 
   const handleGoLive = () => {
     setIsLive(true);
     setIsPlaying(true);
-    showToast('Party LIVE — all devices syncing', 'success');
-    setTimeout(broadcastSync, 80);
+    showToast('Party LIVE — devices syncing', 'success');
+    setTimeout(broadcastSync, 60);
   };
 
   const handleEndParty = () => {
     setIsLive(false);
     setIsPlaying(false);
-    showToast('Party ended — devices silenced', 'info');
+    showToast('Party ended', 'info');
     broadcastSync();
   };
 
@@ -395,13 +410,18 @@ export default function App() {
     setIsPlaying(false);
     setConnectedDevices([]);
     setPartyCode('');
-    // Revoke local object URLs to free memory
+    setRequests([]);
     library.forEach(s => {
       if (s.isLocal && s.audioUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(s.audioUrl);
+        try {
+          URL.revokeObjectURL(s.audioUrl);
+        } catch {
+          /* ignore */
+        }
       }
     });
     setLibrary(DEFAULT_LIBRARY);
+    setCurrentSongIndex(0);
   };
 
   return (
@@ -416,19 +436,19 @@ export default function App() {
 
       <AnimatePresence mode="wait">
         {showSplash && (
-          <motion.div key="splash" exit={{ opacity: 0 }} transition={{ duration: 0.35 }} className="fixed inset-0 z-50">
+          <motion.div key="splash" exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="fixed inset-0 z-50">
             <SplashScreen />
           </motion.div>
         )}
       </AnimatePresence>
 
       {!showSplash && !userRole && (
-        <motion.div key="welcome" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.35 }}>
+        <motion.div key="welcome" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }}>
           <WelcomeScreen onJoin={handleJoinParty} />
         </motion.div>
       )}
 
-      {!showSplash && userRole === 'host' && (
+      {!showSplash && userRole === 'host' && currentSong && (
         <motion.div key="host" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex flex-col">
           <HostApp
             requests={requests}
@@ -459,11 +479,12 @@ export default function App() {
             isConnected={isConnected}
             library={library}
             onAddLocalFiles={handleAddLocalFiles}
+            onCopyCode={() => showToast('Party code copied', 'success')}
           />
         </motion.div>
       )}
 
-      {!showSplash && userRole === 'guest' && (
+      {!showSplash && userRole === 'guest' && currentSong && (
         <motion.div key="guest" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex flex-col">
           <GuestApp
             requests={requests}

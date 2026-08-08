@@ -1,6 +1,23 @@
 # GitHub Actions security scanning
 
-Orange Groove uses several free GitHub-native / OSS scanners.
+Orange Groove uses free GitHub-native and OSS scanners plus **Dependabot**.
+
+---
+
+## Enable in GitHub UI (once)
+
+**Settings → Code security and analysis**
+
+| Feature | Why |
+|---------|-----|
+| Dependency graph | Required for Dependabot & dependency-review |
+| **Dependabot alerts** | Security advisories on dependencies |
+| **Dependabot security updates** | Auto-PRs for vulnerable packages |
+| Dependabot version updates | Driven by `.github/dependabot.yml` |
+| Secret scanning + push protection | Block accidental secret pushes |
+| Code scanning | Surfaces CodeQL results |
+
+Details: [`DEPENDABOT.md`](DEPENDABOT.md)
 
 ---
 
@@ -8,78 +25,45 @@ Orange Groove uses several free GitHub-native / OSS scanners.
 
 | Workflow | File | What it does |
 |----------|------|----------------|
-| **Security scanning** | `.github/workflows/security.yml` | npm audit, Gitleaks, CodeQL, dependency-review (PRs) |
+| **Security scanning** | `security.yml` | npm audit, Gitleaks, CodeQL, dependency-review (PRs) |
 | **CI** | `ci.yml` | Typecheck + production web build |
-| **Android** | `android.yml` | APK/AAB (signed only with secrets) |
-| **Key rotation checklist** | `key-rotation-checklist.yml` | Manual rotation reminder (no keygen in CI) |
-| **iOS placeholder** | `ios-placeholder.yml` | Documents iOS CI secrets |
-
-Triggers for `security.yml`: push/PR to main, weekly cron, manual dispatch.
+| **Android** | `android.yml` | APK/AAB |
+| **iOS TestFlight** | `ios.yml` | Fastlane Match + upload |
+| **Key rotation checklist** | `key-rotation-checklist.yml` | Manual Android upload-key checklist |
+| **Dependabot** | `dependabot.yml` | Weekly npm + Actions version PRs |
 
 ---
 
-## Scanners explained
+## Scanners
 
 ### npm audit
 
-- Runs `npm audit --omit=dev --audit-level=high`  
-- Full JSON uploaded as artifact `npm-audit-report`  
-- `continue-on-error` on the high gate so informational findings don’t hard-block; tighten to `exit 1` when the dependency tree is clean  
-
-Fix locally:
-
 ```bash
 npm audit
-npm audit fix
+npm run security:audit
 ```
 
 ### Gitleaks
 
-- Scans full git history for accidental secrets (AWS keys, private keys, tokens)  
-- Uses `gitleaks/gitleaks-action@v2`  
-- Enable [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning) on the repo for push protection  
+Full-history secret scan via `gitleaks/gitleaks-action@v2`.
 
 ### CodeQL
 
-- Semantic analysis for JavaScript/TypeScript (`security-extended` queries)  
-- Results appear under the repo **Security → Code scanning** tab  
-- Requires `security-events: write` permission (set in the workflow)  
+JS/TS `security-extended` → **Security → Code scanning**.
 
-### Dependency review (pull requests only)
+### Dependency review
 
-- Blocks PRs that introduce **high** severity vulnerable packages  
-- Requires GitHub Dependency graph (enabled by default on public repos; for private repos enable under Settings → Code security)  
+On pull requests: fails on **high** severity new vulnerabilities.
 
----
+### Dependabot
 
-## Recommended repo settings (manual, once)
-
-1. **Settings → Code security and analysis**  
-   - Dependency graph: On  
-   - Dependabot alerts: On  
-   - Dependabot security updates: On  
-   - Secret scanning: On  
-   - Push protection: On  
-2. **Settings → Actions → General**  
-   - Restrict actions to required marketplace actions if desired  
-3. **Environments → `android-release`**  
-   - Required reviewers for signed Android jobs  
-
----
-
-## Interpreting failures
-
-| Job fails | Typical fix |
-|-----------|-------------|
-| npm audit | Upgrade dependency; or accept risk and document |
-| gitleaks | Remove secret, rotate credential, purge from history if needed |
-| CodeQL | Fix flagged sink or mark false positive in Security UI |
-| dependency-review | Change the dependency version in the PR |
+Weekly PRs for npm and GitHub Actions; security alerts when advisories publish.
 
 ---
 
 ## Related docs
 
-- `docs/SECURITY_SIGNING.md` — keystores & certificates  
-- `docs/KEY_ROTATION.md` — upload key rotation  
-- `docs/IOS_SIGNING.md` — Apple signing  
+- `docs/SECURITY_SIGNING.md`  
+- `docs/KEY_ROTATION.md`  
+- `docs/IOS_SIGNING.md` / `docs/FASTLANE_MATCH.md`  
+- `docs/DEPENDABOT.md`  

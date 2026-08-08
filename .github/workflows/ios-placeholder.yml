@@ -1,42 +1,16 @@
-name: iOS (placeholder)
-
-# Does not build until Fastlane Match / signing secrets are configured.
-# See docs/IOS_SIGNING.md for full Xcode + TestFlight steps.
+# Deprecated: use ios.yml + docs/FASTLANE_MATCH.md
+# Kept as a no-op redirect so old bookmarks do not 404 in the Actions UI history.
+name: iOS (moved)
 
 on:
   workflow_dispatch:
-    inputs:
-      note:
-        description: "This workflow documents required secrets; it exits until iOS CI is enabled"
-        required: false
-        default: "see-docs"
 
 jobs:
-  document:
-    runs-on: macos-latest
+  redirect:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: iOS CI requirements
+      - name: Use the real workflow
         run: |
-          cat <<'EOF'
-          === iOS CI not fully enabled ===
-
-          Local (required first):
-            npm run build && npx cap add ios && npx cap sync ios && npx cap open ios
-            Xcode → Signing & Capabilities → Automatic Signing → your Team
-            Product → Archive → Distribute → App Store Connect / TestFlight
-
-          For GitHub Actions builds, configure secrets (never commit these):
-            APPSTORE_ISSUER_ID
-            APPSTORE_KEY_ID
-            APPSTORE_PRIVATE_KEY     # AuthKey_XXX.p8 contents
-            MATCH_PASSWORD          # if using Fastlane Match
-            MATCH_GIT_URL           # private certs repo
-
-          Then add Fastlane under ios/fastlane and replace this placeholder job
-          with match + build_app + upload_to_testflight.
-
-          Full steps: docs/IOS_SIGNING.md
-          EOF
-          exit 0
+          echo "This placeholder is retired."
+          echo "Use Actions → 'iOS TestFlight' (.github/workflows/ios.yml)"
+          echo "Docs: docs/FASTLANE_MATCH.md and docs/IOS_SIGNING.md"

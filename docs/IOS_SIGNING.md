@@ -1,6 +1,8 @@
 # iOS code signing (Orange Groove / Capacitor)
 
-Complete steps to sign and distribute the iOS app. Requires **macOS**, **Xcode**, and an **Apple Developer Program** membership.
+Complete steps for local Xcode signing, **Fastlane Match**, TestFlight, and GitHub Actions.
+
+Also read: [`FASTLANE_MATCH.md`](FASTLANE_MATCH.md) · [`SECURITY_SIGNING.md`](SECURITY_SIGNING.md)
 
 ---
 
@@ -8,132 +10,79 @@ Complete steps to sign and distribute the iOS app. Requires **macOS**, **Xcode**
 
 | Asset | Purpose |
 |-------|---------|
-| **Team ID** | Your Apple Developer team |
-| **App ID / Bundle ID** | `com.orangegroove.app` (must match `capacitor.config.ts`) |
-| **Development certificate** | Run on your devices from Xcode |
-| **Distribution certificate** | App Store / Ad Hoc / Enterprise |
-| **Provisioning profile** | Ties App ID + cert + devices (or App Store) |
-| **App Store Connect API key** | CI uploads (`.p8`) — never commit |
-
-Prefer **Xcode Automatic Signing** for the Capacitor `ios/` project unless you have a complex enterprise setup.
+| Bundle ID | `com.orangegroove.app` (must match `capacitor.config.ts`) |
+| Development certificate | Run on devices from Xcode |
+| Distribution certificate | App Store / TestFlight |
+| Provisioning profile | Ties App ID + certs |
+| App Store Connect API key | CI uploads (`.p8`) — never commit |
+| Match repo | Private git repo of **encrypted** certs/profiles |
 
 ---
 
-## 1. One-time Apple setup
+## Path A — Local Xcode only (fastest first install)
 
-1. Enroll at [developer.apple.com](https://developer.apple.com)  
-2. [App Store Connect](https://appstoreconnect.apple.com) → **My Apps → +** → bundle id `com.orangegroove.app`  
-3. Certificates, Identifiers & Profiles → **Identifiers** → ensure App ID exists with capabilities you need (Push optional later)  
+### 1. Apple setup
 
----
+1. [Apple Developer](https://developer.apple.com) membership  
+2. [App Store Connect](https://appstoreconnect.apple.com) → create app with bundle id `com.orangegroove.app`  
 
-## 2. Generate the Xcode iOS project
+### 2. Generate iOS project
 
 ```bash
-npm install
-npm run build
-npx cap add ios          # once, macOS only
+npm install && npm run build
+npx cap add ios
 npx cap sync ios
 npx cap open ios
 ```
 
----
+### 3. Automatic signing
 
-## 3. Automatic signing in Xcode (recommended)
-
-1. Select the **App** target → **Signing & Capabilities**  
-2. Check **Automatically manage signing**  
-3. **Team** → your Apple Developer team  
-4. Confirm Bundle Identifier = `com.orangegroove.app`  
-5. Xcode creates/uses Development + Distribution certs and profiles in your account  
-
-### Device run
-
-1. Connect iPhone → trust computer  
-2. Select the device as run destination  
-3. **Product → Run**  
-4. On device: Settings → General → VPN & Device Management → trust developer if prompted  
+1. Target **App** → **Signing & Capabilities**  
+2. **Automatically manage signing** → select **Team**  
+3. Bundle ID = `com.orangegroove.app`  
+4. **Product → Run** on a device, or **Product → Archive** → Distribute → App Store Connect  
 
 ---
 
-## 4. Archive for App Store / TestFlight
+## Path B — Fastlane Match + CI (team / automation)
 
-1. Destination: **Any iOS Device (arm64)**  
-2. **Product → Archive**  
-3. Organizer → **Distribute App** → **App Store Connect** → Upload  
-4. In App Store Connect → TestFlight → wait for processing → add internal testers  
-
----
-
-## 5. Manual signing (optional)
-
-Only if automatic signing is disabled:
-
-1. Create **Apple Distribution** certificate in the developer portal (CSR from Keychain Access)  
-2. Create **App Store** provisioning profile for `com.orangegroove.app`  
-3. Download/install both  
-4. Xcode → Signing → Manual → select cert + profile  
-
----
-
-## 6. CI signing (GitHub Actions on macOS) — outline
-
-Full iOS CI needs a `macos-latest` runner and stored secrets:
-
-| Secret | Purpose |
-|--------|---------|
-| `APPSTORE_ISSUER_ID` | App Store Connect API |
-| `APPSTORE_KEY_ID` | API key id |
-| `APPSTORE_PRIVATE_KEY` | Contents of `AuthKey_xxx.p8` |
-| `MATCH_PASSWORD` | If using Fastlane Match |
-| `MATCH_GIT_URL` | Private repo of encrypted certs |
-
-**Recommended path:** [Fastlane match](https://docs.fastlane.tools/actions/match/) + `fastlane deliver` / `pilot`.
-
-Minimal Fastlane lane sketch (add under `ios/fastlane/` when you adopt Fastlane):
-
-```ruby
-lane :beta do
-  setup_ci if ENV['CI']
-  match(type: "appstore", readonly: true)
-  build_app(workspace: "App/App.xcworkspace", scheme: "App")
-  upload_to_testflight(skip_waiting_for_build_processing: true)
-end
+```bash
+bash scripts/setup-ios-fastlane.sh   # after cap add ios
+# then follow docs/FASTLANE_MATCH.md end-to-end
 ```
 
-A starter workflow file is included as `.github/workflows/ios-placeholder.yml` (`workflow_dispatch` only) documenting required secrets without assuming Match is configured.
+Templates live in `templates/ios/fastlane/` (Fastfile, Matchfile, Appfile, Gemfile).
+
+### GitHub Actions
+
+- Workflow: **`.github/workflows/ios.yml`** (`workflow_dispatch`)  
+- Environment: create **`ios-release`** with required reviewers  
+- Secrets: `MATCH_GIT_URL`, `MATCH_PASSWORD`, `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_PRIVATE_KEY`, optional `MATCH_SSH_PRIVATE_KEY` / `MATCH_GIT_BASIC_AUTHORIZATION`  
+
+Actions → **iOS TestFlight** → Run workflow → lane `beta` or `build`.
 
 ---
 
-## 7. Certificate rotation (iOS)
+## Certificate rotation (iOS)
 
-1. Developer portal → revoke old **Distribution** cert if compromised  
-2. Xcode → Settings → Accounts → Manage Certificates → **+** Apple Distribution  
-3. Re-archive and upload  
-4. Update Match repo / CI secrets if used  
-5. Devices using old Ad Hoc profiles need new profiles  
-
-App Store apps already installed keep working; **new** uploads need a valid distribution cert.
+1. If compromised: Developer portal → revoke Distribution cert  
+2. With Match: `bundle exec fastlane match nuke distribution` then `match appstore`  
+3. Re-run CI / local `fastlane beta`  
+4. Update secrets if passphrase changed  
 
 ---
 
-## 8. Security rules
+## Security rules
 
-- Never commit `.p12`, `.mobileprovision`, `AuthKey_*.p8`, or `match` passphrases  
-- Use GitHub Environments with required reviewers for iOS release jobs  
-- Prefer API keys with least privilege (App Manager / Developer)  
-
-Covered by root `.gitignore`.
+Never commit: `.p12`, `.mobileprovision`, `AuthKey_*.p8`, Match passphrase, deploy keys.  
+Covered by root `.gitignore`. `ios/` is gitignored (generated on each machine/CI).
 
 ---
 
-## 9. Checklist before first TestFlight
+## Checklist — first TestFlight
 
-- [ ] `npm run build && npx cap sync ios`  
-- [ ] Automatic signing shows no errors  
-- [ ] Archive succeeds  
-- [ ] App Store Connect app record exists  
-- [ ] Privacy policy URL + screenshots ready for submission  
-- [ ] Export compliance / encryption answers prepared  
-
-Related: `NATIVE_BUILD.md`, `docs/SECURITY_SIGNING.md`.
+- [ ] App record in App Store Connect  
+- [ ] `cap sync ios` after latest `npm run build`  
+- [ ] Automatic signing OK **or** Match `appstore` OK  
+- [ ] Archive / `fastlane beta` succeeds  
+- [ ] Privacy policy + screenshots for App Review when going public  

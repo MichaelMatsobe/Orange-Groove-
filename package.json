@@ -1,7 +1,7 @@
 {
   "name": "orange-groove",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "description": "Wi-Fi multi-device group-play music party. Host streams local files to guests over LAN. PWA + Capacitor ready.",
   "engines": {
@@ -30,6 +30,7 @@
     "android:release": "bash scripts/build-android.sh release",
     "android:bundle": "bash scripts/build-android.sh bundle",
     "ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "ios:setup-fastlane": "bash scripts/setup-ios-fastlane.sh",
     "security:audit": "npm audit --audit-level=high"
   },
   "dependencies": {

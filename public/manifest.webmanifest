@@ -1,13 +1,21 @@
 {
   "name": "Orange Groove",
   "short_name": "OrangeGroove",
-  "description": "Multi-device group-play music party. Host is the virtual DJ. Guests sync in real-time.",
+  "description": "Wi-Fi multi-device group-play music party. Host is the virtual DJ. Guests sync in real-time.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#f97316",
   "orientation": "portrait-primary",
+  "categories": ["music", "entertainment"],
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",

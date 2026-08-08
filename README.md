@@ -3,73 +3,224 @@
 **Wi‑Fi multi-device group-play music party.**  
 The host is the virtual DJ. Guests join the same network (home Wi‑Fi or the host’s mobile hotspot) with a private 6-digit code and stay tightly synchronized.
 
-No Bluetooth required. Works in the browser and is packageable for Android / iOS / desktop.
+Works as a **web app**, **installable PWA**, and is **Capacitor-ready** for Android / iOS.
 
-## How it works
+---
 
-1. **Host** starts a party → gets a private 6-digit code  
-2. Everyone joins the **same Wi‑Fi** *or* the host turns on a **mobile hotspot** and guests connect to it  
-3. Guests enter the party code  
-4. Host taps **Go Live** → all devices play the same track at the same position  
+## Architecture
 
-Transport: **Trystero (WebRTC)** over the local network. Party rooms are isolated by app ID + code.
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                     Same Wi‑Fi / Hotspot                      │
+│                                                               │
+│   ┌──────────────┐         WebRTC (Trystero)        ┌──────┐│
+│   │  HOST (DJ)   │◄────────────────────────────────►│Guest1││
+│   │  Master clock│         party code room          │      ││
+│   │  Play/Pause  │◄────────────────────────────────►│Guest2││
+│   │  Queue / Live│                                   │  …   ││
+│   └──────┬───────┘                                   └──┬───┘│
+│          │                                              │    │
+│          ▼                                              ▼    │
+│   Phone speaker /                              Phone speaker /│
+│   BT headset (OS)                              BT headset (OS)│
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Why Wi‑Fi (not Bluetooth)
+**Bluetooth speakers & headsets** pair in the phone’s system Settings.  
+Orange Groove plays through the device’s current audio output — it does not pair Bluetooth itself.
 
-| | Bluetooth group play | Wi‑Fi + Orange Groove |
-|--|----------------------|------------------------|
-| Phones / tablets / laptops | Awkward | Excellent |
-| Device count | Often 2–8 | Practical 5–15+ |
-| Bandwidth | Limited | High |
-| Offline party | Yes | Yes (hotspot) |
-| Web app | Almost impossible | Native fit |
+```text
+  [BT Speaker] ← A2DP ← [Phone OS] ← audio ← [Orange Groove browser/app]
+```
 
-## Quick start (web)
+---
+
+## How to party
+
+### A — Same Wi‑Fi
+
+```text
+Host                          Guest
+────                          ─────
+Open app                      Open app
+Start Party ──code──►         Join with Party Code
+Go Live ─────────────►        Auto-syncs track + position
+```
+
+### B — Mobile hotspot (no home Wi‑Fi)
+
+```text
+1. Host: Settings → Mobile hotspot → ON
+2. Guests: join that hotspot (name + password)
+3. Host: Start Party → share 6-digit code
+4. Guests: Join with Party Code
+5. Host: Go Live
+```
+
+---
+
+## Quick start (development)
 
 ```bash
+git clone https://github.com/MichaelMatsobe/Orange-Groove-.git
+cd Orange-Groove-
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` on two devices on the same network:
+Open `http://localhost:3000` on two devices on the same network.
 
-- Device A → **Start Party** → copy/share the code  
-- Device B → **Join with Party Code** → enter code  
-- Host → **Go Live**
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Vite frontend (port 3000) |
+| `npm run dev:server` | Optional Express API (port 4000) |
+| `npm run dev:full` | Frontend + backend |
+| `npm run build` | Production build → `dist/` |
+| `npm run preview` | Serve production build locally |
+| `npm run lint` | Typecheck |
 
-### Offline / hotspot party
+---
 
-1. Host: Settings → Mobile hotspot → turn on  
-2. Guests: join that hotspot (Wi‑Fi name + password from host)  
-3. Both open Orange Groove → host shares party code → guests join → Go Live  
+## Deploy (web / PWA)
+
+### 1. Build
+
+```bash
+npm install
+npm run build
+```
+
+Output: `dist/` (static files + service worker).
+
+### 2. Host as a static site (recommended)
+
+Any static host works. SPA fallback must send all routes to `index.html`.
+
+**Vercel** — repo includes `vercel.json`  
+**Netlify** — repo includes `netlify.toml`  
+**GitHub Pages / Cloudflare / nginx** — point document root at `dist/` and fall back to `index.html`.
+
+Example nginx:
+
+```nginx
+location / {
+  try_files $uri $uri/ /index.html;
+}
+```
+
+### 3. HTTPS required
+
+WebRTC and installable PWA need **HTTPS** (or `localhost`).  
+Use your host’s free TLS (Vercel / Netlify / Cloudflare) or Caddy / certbot.
+
+### 4. Optional backend
+
+```bash
+npm run server
+# or: node after compiling, default PORT=4000
+```
+
+Set `PORT` in the environment. Frontend sync works **without** the backend (Trystero is peer-to-peer).
+
+---
+
+## Install as app (PWA)
+
+1. Deploy over HTTPS  
+2. Open in Chrome / Safari / Edge  
+3. “Add to Home Screen” / Install  
+
+Manifest: `public/manifest.webmanifest`  
+Service worker: registered from `src/main.tsx` → caches shell for offline open.
+
+---
+
+## Mobile (Capacitor)
+
+```bash
+npm run build
+npx cap add android   # once
+npx cap add ios       # once, macOS only
+npx cap sync
+npx cap open android  # or ios
+```
+
+`capacitor.config.ts` uses `webDir: dist` and app id `com.orangegroove.app`.
+
+---
+
+## Project layout
+
+```text
+Orange-Groove-/
+├── index.html
+├── package.json
+├── vite.config.ts
+├── capacitor.config.ts
+├── vercel.json / netlify.toml
+├── public/
+│   ├── manifest.webmanifest
+│   ├── sw.js                 # service worker
+│   ├── icon.svg
+│   └── icons (192 / 512)
+├── server/                   # optional Express + Socket.IO
+└── src/
+    ├── App.tsx               # roles, Trystero room, master player
+    ├── components/
+    │   ├── WelcomeScreen.tsx
+    │   ├── HostApp.tsx       # DJ controls + share code
+    │   └── GuestApp.tsx      # synced listener UI
+    ├── constants.ts
+    └── types.ts
+```
+
+---
 
 ## Stack
 
-- React 19 + Vite 6 + TypeScript + Tailwind  
-- Trystero (WebRTC P2P) for real-time sync  
-- Optional Express + Socket.IO backend (`server/`)  
-- Capacitor-ready for Android / iOS builds  
+| Layer | Tech |
+|-------|------|
+| UI | React 19, TypeScript, Tailwind 4, Motion |
+| Sync | Trystero (WebRTC P2P) |
+| Build | Vite 6 |
+| PWA | Web manifest + service worker |
+| Optional API | Express, Socket.IO |
+| Native shell | Capacitor 7 |
 
-## Scripts
+---
 
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | Frontend |
-| `npm run dev:server` | Backend |
-| `npm run dev:full` | Both |
-| `npm run build` | Production build |
-| `npm run android` / `ios` | Capacitor native projects |
+## Security model
+
+```text
+┌──────────────┐
+│ 6-digit code │  only shared by host (copy / OS share sheet)
+└──────┬───────┘
+       │ + unique Trystero appId
+       ▼
+ Private WebRTC room — not listed publicly
+ Same LAN / hotspot recommended for reliability
+```
+
+- Codes are ephemeral (while host is in the party).  
+- No account required for core group play.  
+- Audio stays on each device; sample track URLs are public demo files.
+
+---
 
 ## Roadmap
 
-- [x] Host as master player / virtual DJ  
-- [x] Guests tightly synced over Wi‑Fi / hotspot  
-- [x] Private 6-digit party codes + copy/share  
+- [x] Host master player / virtual DJ  
+- [x] Guest sync over Wi‑Fi / hotspot  
+- [x] Private 6-digit codes + copy/share  
 - [x] Connected device list  
-- [x] Local file upload on host  
-- [ ] Stream host local files to guests over the LAN  
-- [ ] Native “Start Hotspot” helper (Capacitor)  
+- [x] Local file upload (host)  
+- [x] PWA install + service worker  
+- [x] Static deploy configs (Vercel / Netlify)  
+- [ ] Stream host local files to guests over LAN  
+- [ ] Native “start hotspot” helper  
 - [ ] Desktop installers (Tauri / Electron)  
+
+---
 
 ## License
 

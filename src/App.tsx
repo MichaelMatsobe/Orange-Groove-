@@ -41,7 +41,7 @@ export default function App() {
   // Network
   const sendSyncRef = useRef<any>(null);
   const sendRequestRef = useRef<any>(null);
-  const sendRequestsRef = useRef<any>(null); // NEW: full request list sync
+  const sendRequestsRef = useRef<any>(null);
 
   // Refs for Trystero callbacks to avoid stale closures
   const currentSongIndexRef = useRef(currentSongIndex);
@@ -66,40 +66,16 @@ export default function App() {
     else if (role === 'host') setPartyCode('8080');
   };
 
+  // Toast (defined early so it can be used in effects safely)
+  const [toast, setToast] = useState({ message: '', type: 'info' as ToastType, isVisible: false });
+  const showToast = useCallback((message: string, type: ToastType) => {
+    setToast({ message, type, isVisible: true });
+  }, []);
+  const hideToast = useCallback(() => setToast(p => ({ ...p, isVisible: false })), []);
+
   // ==================== PLAYER LOGIC ====================
-  const handleNext = useCallback(() => {
-    setCurrentSongIndex(i => (i + 1) % MOCK_LIBRARY.length);
-    setProgress(0);
-    setIsPlaying(true);
-    // broadcastSync will be called by effect or manually if needed, but effect is safer for state consistency
-    setTimeout(broadcastSync, 0); 
-  }, []);
-
-  const handlePrevious = useCallback(() => {
-    setCurrentSongIndex(i => (i - 1 + MOCK_LIBRARY.length) % MOCK_LIBRARY.length);
-    setProgress(0);
-    setIsPlaying(true);
-    setTimeout(broadcastSync, 0);
-  }, []);
-
-  const handlePlayPause = useCallback(() => {
-    setIsPlaying(p => !p);
-    setTimeout(broadcastSync, 0);
-  }, []);
-
-  const handleSeek = useCallback((time: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = time;
-    setProgress(time);
-    broadcastSync();
-  }, []);
-
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
-    
-    // Only broadcast if live, or maybe broadcast "offline" status?
-    // Let's broadcast everything, and let guest decide based on isLive.
     
     sendSyncRef.current({
       currentSongIndex,
@@ -107,9 +83,36 @@ export default function App() {
       timestamp: audioRef.current.currentTime,
       timestampAt: Date.now(),
       volume: isMuted ? 0 : volume,
-      isLive // Send live status
+      isLive
     });
   }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive]);
+
+  const handleNext = useCallback(() => {
+    setCurrentSongIndex(i => (i + 1) % MOCK_LIBRARY.length);
+    setProgress(0);
+    setIsPlaying(true);
+    setTimeout(() => broadcastSync(), 0); 
+  }, [broadcastSync]);
+
+  const handlePrevious = useCallback(() => {
+    setCurrentSongIndex(i => (i - 1 + MOCK_LIBRARY.length) % MOCK_LIBRARY.length);
+    setProgress(0);
+    setIsPlaying(true);
+    setTimeout(() => broadcastSync(), 0);
+  }, [broadcastSync]);
+
+  const handlePlayPause = useCallback(() => {
+    setIsPlaying(p => !p);
+    setTimeout(() => broadcastSync(), 0);
+  }, [broadcastSync]);
+
+  const handleSeek = useCallback((time: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = time;
+    setProgress(time);
+    broadcastSync();
+  }, [broadcastSync]);
 
   // Load new song
   useEffect(() => {
@@ -125,7 +128,7 @@ export default function App() {
         audio.play().catch(() => {});
       }, 50);
     }
-  }, [currentSongIndex]);
+  }, [currentSongIndex, currentSong, isPlaying]);
 
   // Play/pause + volume
   useEffect(() => {
@@ -148,20 +151,19 @@ export default function App() {
 
     const [sendSync, getSync] = room.makeAction('sync');
     const [sendRequest, getRequest] = room.makeAction('request');
-    const [sendRequests, getRequests] = room.makeAction('requests'); // NEW
+    const [sendRequests, getRequests] = room.makeAction('requests');
 
     sendSyncRef.current = sendSync;
     sendRequestRef.current = sendRequest;
     sendRequestsRef.current = sendRequests;
 
-    // Host sends full requests list to new peers
     const broadcastRequests = () => {
       if (userRole === 'host' && sendRequestsRef.current) {
         sendRequestsRef.current(requests);
       }
     };
 
-    room.onPeerJoin((peerId) => {
+    room.onPeerJoin(() => {
       setIsConnected(true);
       if (userRole === 'host') {
         broadcastSync();
@@ -170,42 +172,36 @@ export default function App() {
       }
     });
 
-    // Guest: receive full requests
     if (userRole === 'guest') {
       getRequests((newList: any) => {
         setRequests(newList as SongRequest[]);
       });
     }
 
-    // Host: receive new request from guest
     if (userRole === 'host') {
       getRequest((req: any) => {
         setRequests(prev => {
           const updated = [req as SongRequest, ...prev];
-          setTimeout(broadcastRequests, 10); // broadcast after setState
+          setTimeout(broadcastRequests, 10);
           return updated;
         });
         showToast(`New request: ${(req as SongRequest).title}`, 'info');
       });
     }
 
-    // Guest: sync player
     if (userRole === 'guest') {
       getSync((state: any) => {
         setIsConnected(true);
         
-        // Update live status
         if (state.isLive !== isLiveRef.current) {
             setIsLive(state.isLive);
         }
 
-        // If not live, stop playing and return (or maybe just update song info but don't play)
         if (!state.isLive) {
             setIsPlaying(false);
             return;
         }
 
-        // Song change
         if (state.currentSongIndex !== currentSongIndexRef.current) {
           setCurrentSongIndex(state.currentSongIndex);
           setProgress(0);
@@ -215,7 +211,6 @@ export default function App() {
         setVolume(state.volume ?? 1);
         setIsMuted(state.volume === 0);
 
-        // Drift correction (better than original)
         const audio = audioRef.current;
         if (audio && state.currentSongIndex === currentSongIndexRef.current) {
           const delay = (Date.now() - state.timestampAt) / 1000;
@@ -231,19 +226,19 @@ export default function App() {
       room.leave();
       setIsConnected(false);
     };
-  }, [userRole, partyCode]);
+  }, [userRole, partyCode, broadcastSync, showToast, requests]);
 
-  // Host heartbeat + immediate on any player change
+  // Host heartbeat
   useEffect(() => {
     if (userRole !== 'host') return;
     const id = setInterval(broadcastSync, 800);
     return () => clearInterval(id);
-  }, [broadcastSync]);
+  }, [broadcastSync, userRole]);
 
   // Broadcast requests whenever host changes them
   useEffect(() => {
-    if (userRole === 'host') {
-      if (sendRequestsRef.current) sendRequestsRef.current(requests);
+    if (userRole === 'host' && sendRequestsRef.current) {
+      sendRequestsRef.current(requests);
     }
   }, [requests, userRole]);
 
@@ -280,13 +275,6 @@ export default function App() {
     if (!confirm(`Clear all ${status}?`)) return;
     setRequests(prev => prev.map(r => r.status === status ? { ...r, status: 'rejected' } : r));
   };
-
-  // Toast
-  const [toast, setToast] = useState({ message: '', type: 'info' as ToastType, isVisible: false });
-  const showToast = (message: string, type: ToastType) => {
-    setToast({ message, type, isVisible: true });
-  };
-  const hideToast = () => setToast(p => ({ ...p, isVisible: false }));
 
   const handleGoLive = () => {
     setIsLive(true);

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Music, Radio, Users, Loader2 } from 'lucide-react';
+import { Music, Radio, Users, Loader2, Shield } from 'lucide-react';
 
 interface WelcomeScreenProps {
   onJoin: (role: 'host' | 'guest', code?: string) => void;
@@ -13,14 +13,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
 
   const handleStartParty = () => {
     setStarting(true);
-    // Small delay for UX feedback; actual code is generated in App
-    setTimeout(() => onJoin('host'), 300);
+    setTimeout(() => onJoin('host'), 280);
   };
 
   const handleSubmitJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (code.trim()) {
-      onJoin('guest', code.trim());
+    const trimmed = code.trim();
+    if (trimmed.length >= 4) {
+      onJoin('guest', trimmed);
     }
   };
 
@@ -29,7 +29,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12"
+        className="text-center mb-10"
       >
         <div className="w-20 h-20 bg-white/20 backdrop-blur-lg rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
           <Music className="w-10 h-10 text-white" />
@@ -49,7 +49,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
               className="w-full bg-white text-orange-600 p-4 rounded-2xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-70"
             >
               {starting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Radio className="w-5 h-5" />}
-              {starting ? 'Starting…' : 'Start a Party (Host / DJ)'}
+              {starting ? 'Creating secure room…' : 'Start a Party (Host / DJ)'}
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -58,11 +58,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
               className="w-full bg-black/20 backdrop-blur-md text-white border border-white/20 p-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 hover:bg-black/30 transition-colors"
             >
               <Users className="w-5 h-5" />
-              Join a Party
+              Join with Party Code
             </motion.button>
-            <p className="text-center text-white/60 text-sm pt-4">
-              Works in any modern browser. Install as app from your browser menu for the best experience.
-            </p>
+            <div className="flex items-center justify-center gap-2 text-white/50 text-xs pt-3">
+              <Shield className="w-3.5 h-3.5" />
+              <span>Private room · code only shared by host</span>
+            </div>
           </>
         ) : (
           <motion.form
@@ -72,16 +73,19 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
             className="space-y-4"
           >
             <div className="space-y-2">
-              <label className="text-sm font-medium text-white/80 ml-1">Enter Party Code</label>
+              <label className="text-sm font-medium text-white/80 ml-1">
+                Enter the 6-digit code from the host
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="1234"
-                maxLength={4}
-                className="w-full bg-white/10 border border-white/30 rounded-2xl p-4 text-center text-2xl font-mono tracking-widest focus:outline-none focus:border-white focus:bg-white/20 placeholder:text-white/30 transition-all"
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                maxLength={6}
+                className="w-full bg-white/10 border border-white/30 rounded-2xl p-4 text-center text-3xl font-mono tracking-[0.35em] focus:outline-none focus:border-white focus:bg-white/20 placeholder:text-white/25 transition-all"
                 autoFocus
+                autoComplete="one-time-code"
               />
             </div>
             <div className="flex gap-3">
@@ -94,10 +98,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onJoin }) => {
               </button>
               <button
                 type="submit"
-                disabled={code.trim().length < 4}
+                disabled={code.trim().length < 6}
                 className="flex-[2] bg-white text-orange-600 p-4 rounded-2xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Join
+                Join & Sync
               </button>
             </div>
           </motion.form>

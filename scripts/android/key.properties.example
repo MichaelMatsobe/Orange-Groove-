@@ -1,0 +1,7 @@
+# Copy to android/key.properties (or android/app/key.properties) — NEVER commit the real file.
+# Paths are relative to the android/ module root when using the setup script defaults.
+
+storePassword=change-me-store-password
+keyPassword=change-me-key-password
+keyAlias=orange-groove
+storeFile=../orange-groove-release.jks

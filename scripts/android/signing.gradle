@@ -1,0 +1,36 @@
+// Applied by scripts/setup-android-signing.sh into android/app/build.gradle
+// Do not apply this file by itself without key.properties.
+
+def ogKeystorePropertiesFile = rootProject.file("key.properties")
+if (!ogKeystorePropertiesFile.exists()) {
+    ogKeystorePropertiesFile = rootProject.file("app/key.properties")
+}
+def ogKeystoreProperties = new Properties()
+if (ogKeystorePropertiesFile.exists()) {
+    ogKeystoreProperties.load(new FileInputStream(ogKeystorePropertiesFile))
+}
+
+android {
+    signingConfigs {
+        release {
+            if (ogKeystorePropertiesFile.exists()) {
+                keyAlias ogKeystoreProperties["keyAlias"]
+                keyPassword ogKeystoreProperties["keyPassword"]
+                storeFile rootProject.file(ogKeystoreProperties["storeFile"])
+                storePassword ogKeystoreProperties["storePassword"]
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (ogKeystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+            shrinkResources false
+        }
+        debug {
+            // debug uses the default debug keystore
+        }
+    }
+}

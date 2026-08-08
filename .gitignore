@@ -13,3 +13,10 @@ ios/
 .idea/
 .vscode/
 *.swp
+
+# Signing — never commit
+*.jks
+*.keystore
+key.properties
+**/key.properties
+orange-groove-release.jks

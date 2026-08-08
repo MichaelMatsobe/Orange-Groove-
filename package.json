@@ -1,7 +1,7 @@
 {
   "name": "orange-groove",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "Wi-Fi multi-device group-play music party. Host streams local files to guests over LAN. PWA + Capacitor ready.",
   "engines": {
@@ -23,6 +23,10 @@
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "android": "npm run build && npx cap sync android && npx cap open android",
+    "android:setup-signing": "bash scripts/setup-android-signing.sh",
+    "android:debug": "bash scripts/build-android.sh debug",
+    "android:release": "bash scripts/build-android.sh release",
+    "android:bundle": "bash scripts/build-android.sh bundle",
     "ios": "npm run build && npx cap sync ios && npx cap open ios"
   },
   "dependencies": {

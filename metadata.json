@@ -1,0 +1,5 @@
+{
+  "name": "Orange Groove",
+  "description": "A real-time collaborative music party app where hosts control playback and guests can request songs.",
+  "requestFramePermissions": []
+}

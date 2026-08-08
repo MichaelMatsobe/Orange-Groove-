@@ -2,9 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Orange Groove — Wi-Fi multi-device group-play music party.
- * Host = virtual DJ on the local network (home Wi-Fi or mobile hotspot).
- * Guests join with a private 6-digit code and stay tightly synced via Trystero/WebRTC.
+ * Orange Groove — Wi-Fi multi-device group-play.
+ * Host local files are streamed to guests over Trystero (LAN WebRTC) in base64 chunks.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -15,19 +14,22 @@ import { GuestApp } from './components/GuestApp';
 import { SplashScreen } from './components/SplashScreen';
 import { Toast, ToastType } from './components/Toast';
 import { DEFAULT_LIBRARY, INITIAL_REQUESTS, generatePartyCode, TRYSTERO_APP_ID } from './constants';
-import { SongRequest, Song, RequestStatus, ConnectedDevice } from './types';
+import { SongRequest, Song, RequestStatus, ConnectedDevice, FileMetaMessage, FileChunkMessage } from './types';
+import { fileToBase64, splitBase64, base64ToObjectUrl } from './utils/fileTransfer';
+import { startPartyHotspot } from './native/hotspot';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [userRole, setUserRole] = useState<'host' | 'guest' | null>(null);
-  const [partyCode, setPartyCode] = useState<string>('');
+  const [partyCode, setPartyCode] = useState('');
   const [isLive, setIsLive] = useState(false);
   const [requests, setRequests] = useState<SongRequest[]>(INITIAL_REQUESTS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isConnected, setIsConnected] = useState(false);
   const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
   const [library, setLibrary] = useState<Song[]>(DEFAULT_LIBRARY);
+  const [transferProgress, setTransferProgress] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2000);
@@ -43,10 +45,17 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const currentSong = library[currentSongIndex] ?? library[0] ?? DEFAULT_LIBRARY[0];
 
-  const sendSyncRef = useRef<((data: any) => void) | null>(null);
+  const sendSyncRef = useRef<((data: any, peers?: string[]) => void) | null>(null);
   const sendRequestRef = useRef<((data: any) => void) | null>(null);
   const sendRequestsRef = useRef<((data: any) => void) | null>(null);
+  const sendFileMetaRef = useRef<((data: FileMetaMessage, peers?: string[]) => void) | null>(null);
+  const sendFileChunkRef = useRef<((data: FileChunkMessage, peers?: string[]) => void) | null>(null);
   const roomRef = useRef<any>(null);
+
+  /** Host-only: original File objects for LAN streaming */
+  const localFilesRef = useRef<Map<string, File>>(new Map());
+  /** Guest: assemble base64 chunks */
+  const incomingChunksRef = useRef<Map<string, { meta: FileMetaMessage; parts: string[] }>>(new Map());
 
   const currentSongIndexRef = useRef(currentSongIndex);
   const isLiveRef = useRef(isLive);
@@ -64,7 +73,7 @@ export default function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  const toggleTheme = () => setTheme(p => (p === 'dark' ? 'light' : 'dark'));
+  const toggleTheme = () => setTheme((p) => (p === 'dark' ? 'light' : 'dark'));
 
   const handleJoinParty = (role: 'host' | 'guest', code?: string) => {
     if (role === 'host') {
@@ -85,11 +94,25 @@ export default function App() {
   const showToast = useCallback((message: string, type: ToastType) => {
     setToast({ message, type, isVisible: true });
   }, []);
-  const hideToast = useCallback(() => setToast(p => ({ ...p, isVisible: false })), []);
+  const hideToast = useCallback(() => setToast((p) => ({ ...p, isVisible: false })), []);
+
+  const buildLibraryMeta = useCallback(() => {
+    return libraryRef.current.map((s) => ({
+      id: s.id,
+      title: s.title,
+      artist: s.artist,
+      coverUrl: s.coverUrl,
+      // Never send host blob: URLs — guests get real URLs for remote tracks, or stream for local
+      audioUrl: s.isLocal ? '' : s.audioUrl,
+      duration: s.duration,
+      isLocal: !!s.isLocal,
+      streaming: !!s.isLocal,
+      mimeType: s.mimeType,
+    }));
+  }, []);
 
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
-    const lib = libraryRef.current;
     sendSyncRef.current({
       currentSongIndex: currentSongIndexRef.current,
       isPlaying,
@@ -98,23 +121,59 @@ export default function App() {
       volume: isMuted ? 0 : volume,
       isLive: isLiveRef.current,
       deviceCount: connectedDevices.length + 1,
-      libraryMeta: lib
-        .filter(s => !s.isLocal)
-        .map(s => ({
-          id: s.id,
-          title: s.title,
-          artist: s.artist,
-          coverUrl: s.coverUrl,
-          audioUrl: s.audioUrl,
-          duration: s.duration,
-          isLocal: false,
-        })),
+      libraryMeta: buildLibraryMeta(),
     });
-  }, [userRole, isPlaying, volume, isMuted, connectedDevices.length]);
+  }, [userRole, isPlaying, volume, isMuted, connectedDevices.length, buildLibraryMeta]);
+
+  /** Stream one local file to all peers (or a single peer) */
+  const streamLocalFile = useCallback(
+    async (songId: string, peerId?: string) => {
+      if (userRole !== 'host') return;
+      const file = localFilesRef.current.get(songId);
+      const song = libraryRef.current.find((s) => s.id === songId);
+      if (!file || !song || !sendFileMetaRef.current || !sendFileChunkRef.current) return;
+
+      try {
+        const base64 = await fileToBase64(file);
+        const chunks = splitBase64(base64);
+        const meta: FileMetaMessage = {
+          songId,
+          title: song.title,
+          artist: song.artist,
+          coverUrl: song.coverUrl,
+          duration: song.duration,
+          mimeType: file.type || 'audio/mpeg',
+          size: file.size,
+          totalChunks: chunks.length,
+        };
+        const peers = peerId ? [peerId] : undefined;
+        sendFileMetaRef.current(meta, peers);
+
+        for (let i = 0; i < chunks.length; i++) {
+          sendFileChunkRef.current({ songId, index: i, data: chunks[i] }, peers);
+          // Yield so UI stays responsive on large files
+          if (i % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+        }
+      } catch (e) {
+        console.error('streamLocalFile', e);
+        showToast('Failed to stream a local track', 'warning');
+      }
+    },
+    [userRole, showToast]
+  );
+
+  const streamAllLocalToPeer = useCallback(
+    async (peerId: string) => {
+      for (const id of localFilesRef.current.keys()) {
+        await streamLocalFile(id, peerId);
+      }
+    },
+    [streamLocalFile]
+  );
 
   const handleNext = useCallback(() => {
     const len = Math.max(libraryRef.current.length, 1);
-    setCurrentSongIndex(i => (i + 1) % len);
+    setCurrentSongIndex((i) => (i + 1) % len);
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
@@ -122,14 +181,14 @@ export default function App() {
 
   const handlePrevious = useCallback(() => {
     const len = Math.max(libraryRef.current.length, 1);
-    setCurrentSongIndex(i => (i - 1 + len) % len);
+    setCurrentSongIndex((i) => (i - 1 + len) % len);
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
   }, [broadcastSync]);
 
   const handlePlayPause = useCallback(() => {
-    setIsPlaying(p => !p);
+    setIsPlaying((p) => !p);
     setTimeout(() => broadcastSync(), 0);
   }, [broadcastSync]);
 
@@ -151,7 +210,9 @@ export default function App() {
     audio.load();
     setProgress(0);
     if (isPlaying) {
-      const t = setTimeout(() => { audio.play().catch(() => {}); }, 60);
+      const t = setTimeout(() => {
+        audio.play().catch(() => {});
+      }, 60);
       return () => clearTimeout(t);
     }
   }, [currentSongIndex, currentSong?.id, currentSong?.audioUrl]);
@@ -169,32 +230,50 @@ export default function App() {
   };
 
   const handleAddLocalFiles = useCallback(
-    (files: FileList | null) => {
+    async (files: FileList | null) => {
       if (!files || userRole !== 'host') return;
       const newSongs: Song[] = [];
+
       Array.from(files).forEach((file, idx) => {
         if (!file.type.startsWith('audio/')) return;
+        const id = `local-${Date.now()}-${idx}`;
         const url = URL.createObjectURL(file);
         const title = file.name.replace(/\.[^/.]+$/, '') || `Local Track ${idx + 1}`;
+        localFilesRef.current.set(id, file);
         newSongs.push({
-          id: `local-${Date.now()}-${idx}`,
+          id,
           title,
           artist: 'Local File',
           coverUrl: `https://picsum.photos/seed/${encodeURIComponent(title)}/300/300`,
           audioUrl: url,
           duration: 180,
           isLocal: true,
+          mimeType: file.type,
         });
       });
-      if (newSongs.length) {
-        setLibrary(prev => [...prev, ...newSongs]);
-        showToast(`Added ${newSongs.length} local track(s)`, 'success');
-      }
+
+      if (!newSongs.length) return;
+
+      setLibrary((prev) => [...prev, ...newSongs]);
+      showToast(`Added ${newSongs.length} local track(s) — streaming to guests…`, 'success');
+
+      // After state settles, stream to all connected peers
+      setTimeout(() => {
+        broadcastSync();
+        newSongs.forEach((s) => {
+          void streamLocalFile(s.id);
+        });
+      }, 120);
     },
-    [userRole, showToast]
+    [userRole, showToast, broadcastSync, streamLocalFile]
   );
 
-  // Wi-Fi / local-network room (Trystero WebRTC)
+  const handleStartHotspot = useCallback(async () => {
+    const res = await startPartyHotspot();
+    showToast(res.message, res.ok ? 'info' : 'warning');
+  }, [showToast]);
+
+  // Trystero room
   useEffect(() => {
     if (!userRole || !partyCode) return;
 
@@ -204,10 +283,14 @@ export default function App() {
     const [sendSync, getSync] = room.makeAction('sync');
     const [sendRequest, getRequest] = room.makeAction('request');
     const [sendRequests, getRequests] = room.makeAction('requests');
+    const [sendFileMeta, getFileMeta] = room.makeAction('fileMeta');
+    const [sendFileChunk, getFileChunk] = room.makeAction('fileChunk');
 
     sendSyncRef.current = sendSync;
     sendRequestRef.current = sendRequest;
     sendRequestsRef.current = sendRequests;
+    sendFileMetaRef.current = sendFileMeta;
+    sendFileChunkRef.current = sendFileChunk;
 
     const pushRequests = () => {
       if (userRole === 'host' && sendRequestsRef.current) {
@@ -217,21 +300,22 @@ export default function App() {
 
     room.onPeerJoin((peerId: string) => {
       setIsConnected(true);
-      setConnectedDevices(prev => {
-        if (prev.some(d => d.peerId === peerId)) return prev;
+      setConnectedDevices((prev) => {
+        if (prev.some((d) => d.peerId === peerId)) return prev;
         return [...prev, { peerId, joinedAt: Date.now() }];
       });
       if (userRole === 'host') {
         setTimeout(() => {
           broadcastSync();
           pushRequests();
-        }, 100);
-        showToast('Device joined on Wi‑Fi — syncing', 'success');
+          void streamAllLocalToPeer(peerId);
+        }, 150);
+        showToast('Device joined — syncing + streaming local tracks', 'success');
       }
     });
 
     room.onPeerLeave((peerId: string) => {
-      setConnectedDevices(prev => prev.filter(d => d.peerId !== peerId));
+      setConnectedDevices((prev) => prev.filter((d) => d.peerId !== peerId));
       if (userRole === 'host') showToast('Device left', 'info');
     });
 
@@ -239,31 +323,104 @@ export default function App() {
       getRequests((newList: any) => {
         if (Array.isArray(newList)) setRequests(newList as SongRequest[]);
       });
-    }
 
-    if (userRole === 'host') {
-      getRequest((req: any) => {
-        if (!req?.title) return;
-        setRequests(prev => {
-          const updated = [req as SongRequest, ...prev];
-          setTimeout(() => {
-            if (sendRequestsRef.current) sendRequestsRef.current(updated);
-          }, 20);
-          return updated;
+      getFileMeta((meta: FileMetaMessage) => {
+        if (!meta?.songId) return;
+        incomingChunksRef.current.set(meta.songId, {
+          meta,
+          parts: new Array(meta.totalChunks).fill(''),
         });
-        showToast(`Request: ${(req as SongRequest).title}`, 'info');
+        setLibrary((prev) => {
+          if (prev.some((s) => s.id === meta.songId)) {
+            return prev.map((s) =>
+              s.id === meta.songId ? { ...s, streaming: true, title: meta.title, artist: meta.artist } : s
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: meta.songId,
+              title: meta.title,
+              artist: meta.artist,
+              coverUrl: meta.coverUrl,
+              audioUrl: '',
+              duration: meta.duration,
+              isLocal: true,
+              streaming: true,
+              mimeType: meta.mimeType,
+            },
+          ];
+        });
+        setTransferProgress((p) => ({ ...p, [meta.songId]: 0 }));
       });
-    }
 
-    if (userRole === 'guest') {
+      getFileChunk((chunk: FileChunkMessage) => {
+        const entry = incomingChunksRef.current.get(chunk.songId);
+        if (!entry) return;
+        entry.parts[chunk.index] = chunk.data;
+        const received = entry.parts.filter((p) => p !== '').length;
+        const pct = Math.round((received / entry.meta.totalChunks) * 100);
+        setTransferProgress((p) => ({ ...p, [chunk.songId]: pct }));
+
+        if (received >= entry.meta.totalChunks) {
+          const full = entry.parts.join('');
+          const url = base64ToObjectUrl(full, entry.meta.mimeType);
+          incomingChunksRef.current.delete(chunk.songId);
+          setLibrary((prev) =>
+            prev.map((s) =>
+              s.id === chunk.songId
+                ? { ...s, audioUrl: url, streaming: false, isLocal: true, mimeType: entry.meta.mimeType }
+                : s
+            )
+          );
+          setTransferProgress((p) => {
+            const next = { ...p };
+            delete next[chunk.songId];
+            return next;
+          });
+          showToast(`Received: ${entry.meta.title}`, 'success');
+        }
+      });
+
       getSync((state: any) => {
         if (!state) return;
         setIsConnected(true);
 
         if (Array.isArray(state.libraryMeta) && state.libraryMeta.length > 0) {
-          setLibrary(prev => {
-            const locals = prev.filter(s => s.isLocal);
-            return [...state.libraryMeta, ...locals];
+          setLibrary((prev) => {
+            const byId = new Map(prev.map((s) => [s.id, s]));
+            const merged: Song[] = state.libraryMeta.map((m: any) => {
+              const existing = byId.get(m.id);
+              if (m.isLocal) {
+                // Keep guest blob if already received
+                if (existing?.audioUrl?.startsWith('blob:')) return existing;
+                return {
+                  id: m.id,
+                  title: m.title,
+                  artist: m.artist,
+                  coverUrl: m.coverUrl,
+                  audioUrl: existing?.audioUrl || '',
+                  duration: m.duration,
+                  isLocal: true,
+                  streaming: !(existing?.audioUrl),
+                  mimeType: m.mimeType,
+                };
+              }
+              return {
+                id: m.id,
+                title: m.title,
+                artist: m.artist,
+                coverUrl: m.coverUrl,
+                audioUrl: m.audioUrl,
+                duration: m.duration,
+                isLocal: false,
+              };
+            });
+            // Preserve any extra local blobs not in meta
+            prev.forEach((s) => {
+              if (s.isLocal && s.audioUrl && !merged.some((m) => m.id === s.id)) merged.push(s);
+            });
+            return merged;
           });
         }
 
@@ -293,16 +450,36 @@ export default function App() {
       });
     }
 
+    if (userRole === 'host') {
+      getRequest((req: any) => {
+        if (!req?.title) return;
+        setRequests((prev) => {
+          const updated = [req as SongRequest, ...prev];
+          setTimeout(() => {
+            if (sendRequestsRef.current) sendRequestsRef.current(updated);
+          }, 20);
+          return updated;
+        });
+        showToast(`Request: ${(req as SongRequest).title}`, 'info');
+      });
+    }
+
     return () => {
-      try { room.leave(); } catch { /* ignore */ }
+      try {
+        room.leave();
+      } catch {
+        /* ignore */
+      }
       roomRef.current = null;
       sendSyncRef.current = null;
       sendRequestRef.current = null;
       sendRequestsRef.current = null;
+      sendFileMetaRef.current = null;
+      sendFileChunkRef.current = null;
       setIsConnected(false);
       setConnectedDevices([]);
     };
-  }, [userRole, partyCode, broadcastSync, showToast]);
+  }, [userRole, partyCode, broadcastSync, showToast, streamAllLocalToPeer]);
 
   useEffect(() => {
     if (userRole !== 'host') return;
@@ -317,6 +494,10 @@ export default function App() {
   }, [requests, userRole]);
 
   const handleAddRequest = (song: Song) => {
+    if (song.streaming) {
+      showToast('Track still downloading from host…', 'warning');
+      return;
+    }
     const isHost = userRole === 'host';
     const newReq: SongRequest = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -328,20 +509,26 @@ export default function App() {
       timestamp: Date.now(),
       songId: song.id,
     };
-    setRequests(prev => [newReq, ...prev]);
+    setRequests((prev) => [newReq, ...prev]);
     if (!isHost && sendRequestRef.current) sendRequestRef.current(newReq);
     showToast(isHost ? 'Added to queue' : 'Request sent to host', 'success');
   };
 
-  const handleApprove = (id: string) => setRequests(prev => prev.map(r => (r.id === id ? { ...r, status: 'approved' } : r)));
-  const handleReject = (id: string) => setRequests(prev => prev.map(r => (r.id === id ? { ...r, status: 'rejected' } : r)));
+  const handleApprove = (id: string) =>
+    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'approved' } : r)));
+  const handleReject = (id: string) =>
+    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'rejected' } : r)));
   const handleClearRequests = (status: RequestStatus) => {
     if (!confirm(`Clear all ${status} requests?`)) return;
-    setRequests(prev => prev.map(r => (r.status === status ? { ...r, status: 'rejected' as RequestStatus } : r)));
+    setRequests((prev) =>
+      prev.map((r) => (r.status === status ? { ...r, status: 'rejected' as RequestStatus } : r))
+    );
   };
 
   const handlePlayRequest = (req: SongRequest) => {
-    const idx = library.findIndex(s => s.id === req.songId || (s.title === req.title && s.artist === req.artist));
+    const idx = library.findIndex(
+      (s) => s.id === req.songId || (s.title === req.title && s.artist === req.artist)
+    );
     if (idx >= 0) {
       setCurrentSongIndex(idx);
       setProgress(0);
@@ -373,11 +560,18 @@ export default function App() {
     setConnectedDevices([]);
     setPartyCode('');
     setRequests([]);
-    library.forEach(s => {
-      if (s.isLocal && s.audioUrl.startsWith('blob:')) {
-        try { URL.revokeObjectURL(s.audioUrl); } catch { /* ignore */ }
+    setTransferProgress({});
+    library.forEach((s) => {
+      if (s.audioUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(s.audioUrl);
+        } catch {
+          /* ignore */
+        }
       }
     });
+    localFilesRef.current.clear();
+    incomingChunksRef.current.clear();
     setLibrary(DEFAULT_LIBRARY);
     setCurrentSongIndex(0);
   };
@@ -426,12 +620,13 @@ export default function App() {
             volume={volume}
             isMuted={isMuted}
             onVolumeChange={setVolume}
-            onToggleMute={() => setIsMuted(p => !p)}
+            onToggleMute={() => setIsMuted((p) => !p)}
             connectedDevices={connectedDevices}
             isConnected={isConnected}
             library={library}
             onAddLocalFiles={handleAddLocalFiles}
             onCopyCode={() => showToast('Party code copied', 'success')}
+            onStartHotspot={handleStartHotspot}
           />
         </motion.div>
       )}
@@ -451,10 +646,11 @@ export default function App() {
             volume={volume}
             isMuted={isMuted}
             onVolumeChange={setVolume}
-            onToggleMute={() => setIsMuted(p => !p)}
+            onToggleMute={() => setIsMuted((p) => !p)}
             isLive={isLive}
             isConnected={isConnected}
             library={library}
+            transferProgress={transferProgress}
           />
         </motion.div>
       )}

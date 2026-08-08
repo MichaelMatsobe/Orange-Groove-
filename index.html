@@ -2,14 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
     <meta name="theme-color" content="#f97316" />
-    <meta name="description" content="Multi-device group-play music party. Host is the virtual DJ. Guests sync in real-time." />
+    <meta name="description" content="Wi-Fi multi-device group-play music party. Host is the virtual DJ. Guests sync in real-time over the same network or hotspot." />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Orange Groove" />
+    <meta property="og:title" content="Orange Groove" />
+    <meta property="og:description" content="Wi-Fi multi-device group-play music party. Host is the virtual DJ." />
+    <meta property="og:type" content="website" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
     <title>Orange Groove</title>
   </head>
-  <body>
+  <body class="bg-slate-950">
     <div id="root"></div>
     <script>
       window.global = window.global || {};

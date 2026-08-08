@@ -1,6 +1,6 @@
 import React from 'react';
 import { Song, SongRequest } from '../types';
-import { Volume2, VolumeX, Moon, Sun, LogOut, Radio, Music, Plus, Wifi, WifiOff } from 'lucide-react';
+import { Volume2, VolumeX, Moon, Sun, LogOut, Radio, Music, Plus, Wifi, WifiOff, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { clsx } from 'clsx';
 
@@ -21,10 +21,12 @@ interface GuestAppProps {
   isLive?: boolean;
   isConnected?: boolean;
   library: Song[];
+  transferProgress?: Record<string, number>;
 }
 
 export const GuestApp: React.FC<GuestAppProps> = (props) => {
   const [activeTab, setActiveTab] = React.useState<'now-playing' | 'library'>('now-playing');
+  const transfers = props.transferProgress ?? {};
 
   const statusLabel = props.isConnected
     ? props.isLive && props.isPlaying
@@ -62,10 +64,34 @@ export const GuestApp: React.FC<GuestAppProps> = (props) => {
       <main className="flex-1 overflow-y-auto p-4 pb-24">
         {activeTab === 'now-playing' && (
           <div className="space-y-6">
+            {Object.keys(transfers).length > 0 && (
+              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-2xl p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-orange-700 dark:text-orange-300">
+                  <Download className="w-4 h-4" /> Receiving host tracks…
+                </div>
+                {Object.entries(transfers).map(([id, pct]) => (
+                  <div key={id}>
+                    <div className="flex justify-between text-xs text-slate-500 mb-1">
+                      <span className="truncate">{id}</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-orange-500 transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-xl border border-slate-100 dark:border-slate-700">
               <div className="aspect-square rounded-2xl overflow-hidden mb-6 shadow-lg relative">
                 <img src={props.currentSong.coverUrl} alt={props.currentSong.title} className="w-full h-full object-cover" />
-                {props.isPlaying && (
+                {props.currentSong.streaming && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-sm font-medium">
+                    Downloading from host…
+                  </div>
+                )}
+                {props.isPlaying && !props.currentSong.streaming && (
                   <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center gap-1 pb-4 px-4">
                     {[...Array(12)].map((_, i) => (
                       <motion.div key={i} animate={{ height: [10, Math.random() * 40 + 10, 10] }} transition={{ repeat: Infinity, duration: 0.5 + Math.random() * 0.5 }} className="w-1.5 bg-white/80 rounded-full" />
@@ -119,15 +145,18 @@ export const GuestApp: React.FC<GuestAppProps> = (props) => {
         {activeTab === 'library' && (
           <div className="space-y-4">
             <h3 className="font-bold text-lg">Request a Song</h3>
-            <p className="text-sm text-slate-500">The host DJ decides what plays next on the network.</p>
+            <p className="text-sm text-slate-500">Host local tracks appear after they finish streaming to your device.</p>
             <div className="grid gap-3">
-              {props.library.filter(s => !s.isLocal).map(song => (
-                <button key={song.id} onClick={() => props.onAddRequest(song)}
-                  className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-rose-500 text-left group">
+              {props.library.map(song => (
+                <button key={song.id} onClick={() => props.onAddRequest(song)} disabled={!!song.streaming}
+                  className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-rose-500 text-left group disabled:opacity-50">
                   <img src={song.coverUrl} className="w-12 h-12 rounded-lg object-cover" alt="" />
                   <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-sm truncate group-hover:text-rose-500">{song.title}</h4>
-                    <p className="text-xs text-slate-500 truncate">{song.artist}</p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {song.artist}
+                      {song.streaming ? ' · Downloading…' : song.isLocal ? ' · From host' : ''}
+                    </p>
                   </div>
                   <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center group-hover:bg-rose-500 group-hover:text-white">
                     <Plus className="w-4 h-4" />

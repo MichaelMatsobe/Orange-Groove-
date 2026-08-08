@@ -3,7 +3,7 @@ import { Song, SongRequest, ConnectedDevice } from '../types';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Moon, Sun, LogOut, Radio, ListMusic, Plus, Check, X, Music,
-  Users, Smartphone, Upload, Copy, Share2, Shield, Wifi
+  Users, Smartphone, Upload, Copy, Share2, Shield, Wifi, Router
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
@@ -38,6 +38,7 @@ interface HostAppProps {
   library: Song[];
   onAddLocalFiles?: (files: FileList | null) => void;
   onCopyCode?: () => void;
+  onStartHotspot?: () => void;
 }
 
 export const HostApp: React.FC<HostAppProps> = (props) => {
@@ -104,8 +105,6 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} className="space-y-5">
-
-              {/* Party code + Wi-Fi guidance */}
               <div className="bg-gradient-to-br from-orange-500 to-rose-600 rounded-3xl p-5 text-white shadow-xl">
                 <div className="flex items-center gap-2 mb-1 opacity-90">
                   <Wifi className="w-4 h-4" />
@@ -124,13 +123,20 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                     <Share2 className="w-4 h-4" /> Share
                   </button>
                 </div>
+                {props.onStartHotspot && (
+                  <button
+                    onClick={props.onStartHotspot}
+                    className="w-full flex items-center justify-center gap-2 bg-black/25 hover:bg-black/35 py-3 rounded-xl font-semibold text-sm mb-3"
+                  >
+                    <Router className="w-4 h-4" /> Start / open hotspot
+                  </button>
+                )}
                 <div className="text-xs text-white/70 space-y-1 bg-black/15 rounded-xl p-3">
-                  <p><strong>Same Wi‑Fi:</strong> everyone already connected → share code only.</p>
-                  <p><strong>Hotspot party:</strong> Host Settings → Mobile hotspot ON → guests join that Wi‑Fi → enter code.</p>
+                  <p><strong>Same Wi‑Fi:</strong> share code only.</p>
+                  <p><strong>Hotspot:</strong> enable hotspot → guests join that Wi‑Fi → enter code. Local tracks stream to guests over the LAN.</p>
                 </div>
               </div>
 
-              {/* Now Playing */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-xl border border-slate-100 dark:border-slate-700">
                 <div className="aspect-square rounded-2xl overflow-hidden mb-5 shadow-lg relative">
                   <img src={props.currentSong.coverUrl} alt={props.currentSong.title} className="w-full h-full object-cover" />
@@ -231,7 +237,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                 </button>
                 <input ref={fileInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => props.onAddLocalFiles?.(e.target.files)} />
               </div>
-              <p className="text-xs text-slate-400">Sample tracks sync over Wi‑Fi to all guests. Local files play on this device only for now.</p>
+              <p className="text-xs text-slate-400">Local audio is streamed to guests over Wi‑Fi / hotspot (LAN). Prefer smaller files for faster transfer.</p>
               <div className="grid gap-3">
                 {props.library.map(song => (
                   <button key={song.id} onClick={() => props.onAddRequest(song)}
@@ -239,7 +245,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                     <img src={song.coverUrl} className="w-12 h-12 rounded-lg object-cover" alt="" />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-bold text-sm truncate group-hover:text-orange-500">{song.title}</h4>
-                      <p className="text-xs text-slate-500 truncate">{song.artist}{song.isLocal ? ' · Local' : ''}</p>
+                      <p className="text-xs text-slate-500 truncate">{song.artist}{song.isLocal ? ' · Local (streams to guests)' : ''}</p>
                     </div>
                     <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center group-hover:bg-orange-500 group-hover:text-white">
                       <Plus className="w-4 h-4" />
@@ -280,7 +286,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
               </div>
               <div className="flex items-start gap-2 text-xs text-slate-400 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-xl">
                 <Shield className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>Private room over your local network. Only devices with this exact code can join. No public listing.</p>
+                <p>Private room over your local network. Only devices with this exact code can join.</p>
               </div>
             </motion.div>
           )}

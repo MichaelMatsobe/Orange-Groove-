@@ -1,0 +1,15 @@
+# Fastlane Match — encrypted certs/profiles in a PRIVATE git repo
+# https://docs.fastlane.tools/actions/match/
+
+git_url(ENV.fetch("MATCH_GIT_URL", "git@github.com:YOUR_ORG/orange-groove-certs.git"))
+
+storage_mode("git")
+
+type("appstore") # appstore | development | adhoc | enterprise
+
+app_identifier(["com.orangegroove.app"])
+
+# Username only needed for some match init flows; CI uses App Store Connect API key
+# username(ENV["APPLE_ID"])
+
+readonly(ENV["CI"] == "true")

@@ -1,0 +1,108 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "Fastlane lane"
+        type: choice
+        options:
+          - beta
+          - build
+        default: beta
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: Fastlane ${{ github.event.inputs.lane }}
+    runs-on: macos-14
+    timeout-minutes: 90
+    environment: ios-release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+        run: |
+          missing=0
+          for v in APPSTORE_KEY_ID APPSTORE_ISSUER_ID APPSTORE_PRIVATE_KEY MATCH_PASSWORD MATCH_GIT_URL; do
+            if [ -z "${!v}" ]; then
+              echo "Missing secret: $v"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure secrets — see docs/FASTLANE_MATCH.md"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install JS deps & build web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Add Capacitor iOS platform
+        run: |
+          if [ ! -d ios ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+          bash scripts/setup-ios-fastlane.sh
+          cp templates/ios/fastlane/Gemfile ios/Gemfile
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Install Fastlane gems
+        working-directory: ios
+        run: bundle install
+
+      - name: SSH agent for Match repo
+        uses: webfactory/ssh-agent@v0.9.0
+        if: ${{ secrets.MATCH_SSH_PRIVATE_KEY != '' }}
+        with:
+          ssh-private-key: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
+
+      - name: Run Fastlane
+        working-directory: ios
+        env:
+          CI: "true"
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+        run: bundle exec fastlane ${{ github.event.inputs.lane }}
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: |
+            ios/build/*.ipa
+            ios/App/build/*.ipa
+          if-no-files-found: ignore
+          retention-days: 7

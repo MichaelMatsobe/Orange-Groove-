@@ -1,0 +1,15 @@
+# Copied into ios/fastlane/ by scripts/setup-ios-fastlane.sh
+# Fill team values or set via ENV in CI.
+
+app_identifier("com.orangegroove.app")
+
+# Apple ID email used for App Store Connect (local only; prefer API key in CI)
+# apple_id(ENV["APPLE_ID"]) if ENV["APPLE_ID"]
+
+# Team IDs — find in https://developer.apple.com/account → Membership
+# itc_team_id(ENV["ITC_TEAM_ID"]) if ENV["ITC_TEAM_ID"]
+# team_id(ENV["TEAM_ID"]) if ENV["TEAM_ID"]
+
+for_platform :ios do
+  app_identifier("com.orangegroove.app")
+end

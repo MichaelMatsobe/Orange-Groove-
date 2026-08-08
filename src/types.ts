@@ -7,6 +7,7 @@ export interface Song {
   coverUrl: string;
   audioUrl: string;
   duration: number;
+  isLocal?: boolean; // true when host uploaded a local file
 }
 
 export interface SongRequest {
@@ -17,6 +18,7 @@ export interface SongRequest {
   coverUrl: string;
   status: RequestStatus;
   timestamp: number;
+  songId?: string; // link back to library song when possible
 }
 
 export interface ConnectedDevice {

@@ -1,65 +1,76 @@
 import { Song, SongRequest } from './types';
 
-export const MOCK_LIBRARY: Song[] = [
+/** Free sample tracks (SoundHelix – open for demo use) */
+export const DEFAULT_LIBRARY: Song[] = [
   {
     id: '1',
-    title: 'Midnight City',
-    artist: 'M83',
+    title: 'Midnight Drive',
+    artist: 'SoundHelix',
     coverUrl: 'https://picsum.photos/seed/midnight/300/300',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
-    duration: 240
+    duration: 372,
   },
   {
     id: '2',
-    title: 'Get Lucky',
-    artist: 'Daft Punk',
-    coverUrl: 'https://picsum.photos/seed/daft/300/300',
+    title: 'Electric Pulse',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/electric/300/300',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-    duration: 248
+    duration: 421,
   },
   {
     id: '3',
-    title: 'The Less I Know The Better',
-    artist: 'Tame Impala',
-    coverUrl: 'https://picsum.photos/seed/tame/300/300',
+    title: 'Neon Waves',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/neon/300/300',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
-    duration: 216
+    duration: 352,
   },
   {
     id: '4',
-    title: 'Blinding Lights',
-    artist: 'The Weeknd',
-    coverUrl: 'https://picsum.photos/seed/weeknd/300/300',
+    title: 'Sunset Boulevard',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/sunset/300/300',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
-    duration: 200
+    duration: 310,
   },
   {
     id: '5',
-    title: 'Levitating',
-    artist: 'Dua Lipa',
-    coverUrl: 'https://picsum.photos/seed/dua/300/300',
+    title: 'City Lights',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/city/300/300',
     audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
-    duration: 203
-  }
-];
-
-export const INITIAL_REQUESTS: SongRequest[] = [
-  {
-    id: '101',
-    title: 'Bohemian Rhapsody',
-    artist: 'Queen',
-    requester: 'Guest',
-    coverUrl: 'https://picsum.photos/seed/queen/300/300',
-    status: 'pending',
-    timestamp: Date.now() - 100000
+    duration: 348,
   },
   {
-    id: '102',
-    title: 'Hotel California',
-    artist: 'Eagles',
-    requester: 'Host',
-    coverUrl: 'https://picsum.photos/seed/eagles/300/300',
-    status: 'approved',
-    timestamp: Date.now() - 200000
-  }
+    id: '6',
+    title: 'Deep Current',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/deep/300/300',
+    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+    duration: 390,
+  },
+  {
+    id: '7',
+    title: 'Horizon Glow',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/horizon/300/300',
+    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+    duration: 365,
+  },
+  {
+    id: '8',
+    title: 'Night Runner',
+    artist: 'SoundHelix',
+    coverUrl: 'https://picsum.photos/seed/runner/300/300',
+    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+    duration: 401,
+  },
 ];
+
+export const INITIAL_REQUESTS: SongRequest[] = [];
+
+/** Generate a short memorable party code */
+export function generatePartyCode(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}

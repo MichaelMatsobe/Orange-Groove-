@@ -40,10 +40,18 @@ export interface FileMetaMessage {
   mimeType: string;
   size: number;
   totalChunks: number;
+  /** raw-b64 (default) or gzip-b64 when compression helped */
+  encoding?: 'raw-b64' | 'gzip-b64';
+  originalSize?: number;
 }
 
 export interface FileChunkMessage {
   songId: string;
   index: number;
-  data: string; // base64
+  data: string; // base64 of (optionally gzipped) bytes
+}
+
+/** Guest asks host for a missing local track */
+export interface FileNeedMessage {
+  songId: string;
 }

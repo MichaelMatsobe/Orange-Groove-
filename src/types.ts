@@ -7,7 +7,10 @@ export interface Song {
   coverUrl: string;
   audioUrl: string;
   duration: number;
-  isLocal?: boolean; // true when host uploaded a local file
+  isLocal?: boolean;
+  /** Guest is still receiving bytes from host */
+  streaming?: boolean;
+  mimeType?: string;
 }
 
 export interface SongRequest {
@@ -18,11 +21,29 @@ export interface SongRequest {
   coverUrl: string;
   status: RequestStatus;
   timestamp: number;
-  songId?: string; // link back to library song when possible
+  songId?: string;
 }
 
 export interface ConnectedDevice {
   peerId: string;
   joinedAt: number;
   label?: string;
+}
+
+/** Host → guest local file transfer (chunked over Trystero) */
+export interface FileMetaMessage {
+  songId: string;
+  title: string;
+  artist: string;
+  coverUrl: string;
+  duration: number;
+  mimeType: string;
+  size: number;
+  totalChunks: number;
+}
+
+export interface FileChunkMessage {
+  songId: string;
+  index: number;
+  data: string; // base64
 }

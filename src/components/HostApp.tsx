@@ -3,7 +3,7 @@ import { Song, SongRequest, ConnectedDevice } from '../types';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Moon, Sun, LogOut, Radio, ListMusic, Plus, Check, X, Music,
-  Users, Smartphone, Upload, Copy, Share2, Shield
+  Users, Smartphone, Upload, Copy, Share2, Shield, Wifi
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
@@ -53,7 +53,6 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
       props.onCopyCode?.();
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       const ta = document.createElement('textarea');
       ta.value = props.partyCode;
       document.body.appendChild(ta);
@@ -67,16 +66,11 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
   };
 
   const handleShareCode = async () => {
-    const text = `Join my Orange Groove party!\nCode: ${props.partyCode}\nOpen the app → Join with Party Code`;
+    const text = `Join my Orange Groove Wi-Fi party!\n\n1. Connect to the same Wi-Fi (or my hotspot)\n2. Open Orange Groove\n3. Enter code: ${props.partyCode}`;
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: 'Orange Groove Party',
-          text,
-        });
-      } catch {
-        /* user cancelled */
-      }
+        await navigator.share({ title: 'Orange Groove Party', text });
+      } catch { /* cancelled */ }
     } else {
       await handleCopyCode();
     }
@@ -86,27 +80,21 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
       <header className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold shadow-md text-sm">
-            DJ
-          </div>
+          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold shadow-md text-sm">DJ</div>
           <div>
             <h2 className="font-bold text-sm leading-tight">Host / Virtual DJ</h2>
             <div className="flex items-center gap-2">
               <span className={clsx("w-2 h-2 rounded-full animate-pulse", props.isLive ? "bg-green-500" : "bg-slate-400")} />
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                {props.isLive ? 'LIVE' : 'OFFLINE'}
-              </span>
-              <span className="text-xs text-slate-400 flex items-center gap-1">
-                <Users className="w-3 h-3" /> {deviceCount}
-              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{props.isLive ? 'LIVE' : 'OFFLINE'}</span>
+              <span className="text-xs text-slate-400 flex items-center gap-1"><Users className="w-3 h-3" /> {deviceCount}</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={props.toggleTheme} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
+          <button onClick={props.toggleTheme} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800">
             {props.theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
-          <button onClick={props.onBack} className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors">
+          <button onClick={props.onBack} className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
@@ -117,65 +105,54 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
           {activeTab === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} className="space-y-5">
 
-              {/* ===== SECURE PARTY CODE CARD (host shares this with guests) ===== */}
+              {/* Party code + Wi-Fi guidance */}
               <div className="bg-gradient-to-br from-orange-500 to-rose-600 rounded-3xl p-5 text-white shadow-xl">
-                <div className="flex items-center gap-2 mb-2 opacity-90">
-                  <Shield className="w-4 h-4" />
-                  <span className="text-xs font-semibold uppercase tracking-wider">Private party code</span>
+                <div className="flex items-center gap-2 mb-1 opacity-90">
+                  <Wifi className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Wi‑Fi party code</span>
                 </div>
-                <p className="text-sm text-white/80 mb-3">Share only with people you trust. Guests need this code to sync.</p>
+                <p className="text-sm text-white/80 mb-3">Share with guests on the same network or your hotspot.</p>
                 <div className="bg-black/20 rounded-2xl py-4 px-3 text-center mb-4">
                   <p className="text-4xl font-mono font-bold tracking-[0.4em]">{props.partyCode}</p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCopyCode}
-                    className="flex-1 flex items-center justify-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur py-3 rounded-xl font-semibold text-sm transition-colors"
-                  >
+                <div className="flex gap-2 mb-3">
+                  <button onClick={handleCopyCode} className="flex-1 flex items-center justify-center gap-2 bg-white/20 hover:bg-white/30 py-3 rounded-xl font-semibold text-sm">
                     {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    {copied ? 'Copied!' : 'Copy code'}
+                    {copied ? 'Copied!' : 'Copy'}
                   </button>
-                  <button
-                    onClick={handleShareCode}
-                    className="flex-1 flex items-center justify-center gap-2 bg-white text-orange-600 py-3 rounded-xl font-semibold text-sm shadow"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    Share
+                  <button onClick={handleShareCode} className="flex-1 flex items-center justify-center gap-2 bg-white text-orange-600 py-3 rounded-xl font-semibold text-sm shadow">
+                    <Share2 className="w-4 h-4" /> Share
                   </button>
+                </div>
+                <div className="text-xs text-white/70 space-y-1 bg-black/15 rounded-xl p-3">
+                  <p><strong>Same Wi‑Fi:</strong> everyone already connected → share code only.</p>
+                  <p><strong>Hotspot party:</strong> Host Settings → Mobile hotspot ON → guests join that Wi‑Fi → enter code.</p>
                 </div>
               </div>
 
               {/* Now Playing */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-xl border border-slate-100 dark:border-slate-700">
-                <div className="aspect-square rounded-2xl overflow-hidden mb-5 shadow-lg relative group">
-                  <img src={props.currentSong.coverUrl} alt={props.currentSong.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className="aspect-square rounded-2xl overflow-hidden mb-5 shadow-lg relative">
+                  <img src={props.currentSong.coverUrl} alt={props.currentSong.title} className="w-full h-full object-cover" />
                   {props.isLive && (
                     <div className="absolute top-3 left-3 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1">
                       <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" /> LIVE · {deviceCount} DEVICES
                     </div>
                   )}
                 </div>
-
                 <div className="mb-5">
                   <h3 className="text-xl font-bold mb-0.5 truncate">{props.currentSong.title}</h3>
                   <p className="text-slate-500 dark:text-slate-400">{props.currentSong.artist}</p>
                 </div>
-
                 <div className="mb-5">
-                  <input
-                    type="range"
-                    min={0}
-                    max={props.currentSong.duration || 300}
-                    value={props.progress}
+                  <input type="range" min={0} max={props.currentSong.duration || 300} value={props.progress}
                     onChange={(e) => props.onSeek(Number(e.target.value))}
-                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-orange-500"
-                  />
+                    className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-orange-500" />
                   <div className="flex justify-between text-xs text-slate-400 mt-1.5 font-mono">
                     <span>{formatTime(props.progress)}</span>
                     <span>{formatTime(props.currentSong.duration || 0)}</span>
                   </div>
                 </div>
-
                 <div className="flex items-center justify-between mb-5">
                   <button onClick={props.onPrevious} className="p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><SkipBack className="w-6 h-6" /></button>
                   <button onClick={props.onPlayPause} className="w-16 h-16 bg-orange-500 hover:bg-orange-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-orange-500/30 active:scale-95">
@@ -183,10 +160,10 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                   </button>
                   <button onClick={props.onNext} className="p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><SkipForward className="w-6 h-6" /></button>
                 </div>
-
                 <div className="flex items-center gap-4 bg-slate-100 dark:bg-slate-700/50 p-3.5 rounded-2xl">
                   <button onClick={props.onToggleMute}>{props.isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</button>
-                  <input type="range" min="0" max="100" value={props.isMuted ? 0 : props.volume * 100} onChange={e => props.onVolumeChange(parseInt(e.target.value) / 100)}
+                  <input type="range" min="0" max="100" value={props.isMuted ? 0 : props.volume * 100}
+                    onChange={e => props.onVolumeChange(parseInt(e.target.value) / 100)}
                     className="flex-1 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-slate-500" />
                 </div>
               </div>
@@ -235,7 +212,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                           </>
                         )}
                         {req.status === 'approved' && props.onPlayRequest && (
-                          <button onClick={() => props.onPlayRequest!(req)} className="p-1.5 bg-orange-50 text-orange-600 rounded-lg" title="Play now"><Play className="w-4 h-4" /></button>
+                          <button onClick={() => props.onPlayRequest!(req)} className="p-1.5 bg-orange-50 text-orange-600 rounded-lg"><Play className="w-4 h-4" /></button>
                         )}
                       </div>
                     </div>
@@ -249,15 +226,12 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
             <motion.div key="library" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-lg">Library ({props.library.length})</h3>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 text-sm font-medium text-orange-500 bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-full"
-                >
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 text-sm font-medium text-orange-500 bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-full">
                   <Upload className="w-4 h-4" /> Add files
                 </button>
                 <input ref={fileInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => props.onAddLocalFiles?.(e.target.files)} />
               </div>
-              <p className="text-xs text-slate-400">Local files play on this device only. Sample tracks sync to all guests.</p>
+              <p className="text-xs text-slate-400">Sample tracks sync over Wi‑Fi to all guests. Local files play on this device only for now.</p>
               <div className="grid gap-3">
                 {props.library.map(song => (
                   <button key={song.id} onClick={() => props.onAddRequest(song)}
@@ -284,7 +258,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                   <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white"><Radio className="w-5 h-5" /></div>
                   <div className="flex-1">
                     <p className="font-semibold text-sm">This Device (Host / DJ)</p>
-                    <p className="text-xs text-slate-500">Master player</p>
+                    <p className="text-xs text-slate-500">Master player on Wi‑Fi</p>
                   </div>
                   <span className="text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 px-2 py-0.5 rounded-full">HOST</span>
                 </div>
@@ -300,13 +274,13 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                 ))}
                 {(props.connectedDevices?.length ?? 0) === 0 && (
                   <p className="text-sm text-slate-400 text-center py-4">
-                    Copy or share code <strong className="font-mono text-orange-500">{props.partyCode}</strong> so others can join and sync.
+                    Share code <strong className="font-mono text-orange-500">{props.partyCode}</strong> after guests are on the same Wi‑Fi or your hotspot.
                   </p>
                 )}
               </div>
               <div className="flex items-start gap-2 text-xs text-slate-400 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-xl">
                 <Shield className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>Rooms are private. Only devices with the exact 6-digit code from this host can connect. The code is not published publicly.</p>
+                <p>Private room over your local network. Only devices with this exact code can join. No public listing.</p>
               </div>
             </motion.div>
           )}

@@ -1,9 +1,9 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Song, SongRequest, ConnectedDevice } from '../types';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Moon, Sun, LogOut, Radio, ListMusic, Plus, Check, X, Music,
-  Users, Smartphone, Upload
+  Users, Smartphone, Upload, Copy, Share2, Shield
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
@@ -37,12 +37,50 @@ interface HostAppProps {
   isConnected?: boolean;
   library: Song[];
   onAddLocalFiles?: (files: FileList | null) => void;
+  onCopyCode?: () => void;
 }
 
 export const HostApp: React.FC<HostAppProps> = (props) => {
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'requests' | 'library' | 'devices'>('dashboard');
+  const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deviceCount = (props.connectedDevices?.length ?? 0) + 1;
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(props.partyCode);
+      setCopied(true);
+      props.onCopyCode?.();
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = props.partyCode;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      props.onCopyCode?.();
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleShareCode = async () => {
+    const text = `Join my Orange Groove party!\nCode: ${props.partyCode}\nOpen the app → Join with Party Code`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Orange Groove Party',
+          text,
+        });
+      } catch {
+        /* user cancelled */
+      }
+    } else {
+      await handleCopyCode();
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
@@ -52,7 +90,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
             DJ
           </div>
           <div>
-            <h2 className="font-bold text-sm leading-tight">Party #{props.partyCode}</h2>
+            <h2 className="font-bold text-sm leading-tight">Host / Virtual DJ</h2>
             <div className="flex items-center gap-2">
               <span className={clsx("w-2 h-2 rounded-full animate-pulse", props.isLive ? "bg-green-500" : "bg-slate-400")} />
               <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -78,6 +116,36 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div key="dashboard" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} className="space-y-5">
+
+              {/* ===== SECURE PARTY CODE CARD (host shares this with guests) ===== */}
+              <div className="bg-gradient-to-br from-orange-500 to-rose-600 rounded-3xl p-5 text-white shadow-xl">
+                <div className="flex items-center gap-2 mb-2 opacity-90">
+                  <Shield className="w-4 h-4" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Private party code</span>
+                </div>
+                <p className="text-sm text-white/80 mb-3">Share only with people you trust. Guests need this code to sync.</p>
+                <div className="bg-black/20 rounded-2xl py-4 px-3 text-center mb-4">
+                  <p className="text-4xl font-mono font-bold tracking-[0.4em]">{props.partyCode}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyCode}
+                    className="flex-1 flex items-center justify-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur py-3 rounded-xl font-semibold text-sm transition-colors"
+                  >
+                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Copied!' : 'Copy code'}
+                  </button>
+                  <button
+                    onClick={handleShareCode}
+                    className="flex-1 flex items-center justify-center gap-2 bg-white text-orange-600 py-3 rounded-xl font-semibold text-sm shadow"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Share
+                  </button>
+                </div>
+              </div>
+
+              {/* Now Playing */}
               <div className="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-xl border border-slate-100 dark:border-slate-700">
                 <div className="aspect-square rounded-2xl overflow-hidden mb-5 shadow-lg relative group">
                   <img src={props.currentSong.coverUrl} alt={props.currentSong.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
@@ -132,10 +200,6 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
               >
                 {props.isLive ? 'End Party (Silence Devices)' : 'Go Live — Sync All Devices'}
               </button>
-
-              <p className="text-center text-xs text-slate-400">
-                Share code <span className="font-mono font-bold text-orange-500">{props.partyCode}</span> with other devices
-              </p>
             </motion.div>
           )}
 
@@ -191,23 +255,13 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                 >
                   <Upload className="w-4 h-4" /> Add files
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  multiple
-                  className="hidden"
-                  onChange={e => props.onAddLocalFiles?.(e.target.files)}
-                />
+                <input ref={fileInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => props.onAddLocalFiles?.(e.target.files)} />
               </div>
-              <p className="text-xs text-slate-400">Local files play on this device only. Remote sample tracks sync to all guests.</p>
+              <p className="text-xs text-slate-400">Local files play on this device only. Sample tracks sync to all guests.</p>
               <div className="grid gap-3">
                 {props.library.map(song => (
-                  <button
-                    key={song.id}
-                    onClick={() => props.onAddRequest(song)}
-                    className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-orange-500 text-left group"
-                  >
+                  <button key={song.id} onClick={() => props.onAddRequest(song)}
+                    className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-orange-500 text-left group">
                     <img src={song.coverUrl} className="w-12 h-12 rounded-lg object-cover" alt="" />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-bold text-sm truncate group-hover:text-orange-500">{song.title}</h4>
@@ -245,8 +299,14 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                   </div>
                 ))}
                 {(props.connectedDevices?.length ?? 0) === 0 && (
-                  <p className="text-sm text-slate-400 text-center py-4">Share party code <strong className="font-mono">{props.partyCode}</strong> to start group play.</p>
+                  <p className="text-sm text-slate-400 text-center py-4">
+                    Copy or share code <strong className="font-mono text-orange-500">{props.partyCode}</strong> so others can join and sync.
+                  </p>
                 )}
+              </div>
+              <div className="flex items-start gap-2 text-xs text-slate-400 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-xl">
+                <Shield className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>Rooms are private. Only devices with the exact 6-digit code from this host can connect. The code is not published publicly.</p>
               </div>
             </motion.div>
           )}

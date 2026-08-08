@@ -14,9 +14,14 @@ ios/
 .vscode/
 *.swp
 
-# Signing — never commit
+# Signing / certificates — never commit
 *.jks
 *.keystore
 key.properties
 **/key.properties
 orange-groove-release.jks
+orange-groove-upload.jks
+upload_certificate.pem
+*.mobileprovision
+AuthKey_*.p8
+*.p12

@@ -16,12 +16,12 @@ on:
     branches: [main, master]
     paths:
       - "src/**"
-      - "android/**"
       - "capacitor.config.ts"
       - "package.json"
       - ".github/workflows/android.yml"
       - "scripts/android/**"
       - "scripts/build-android.sh"
+      - "scripts/setup-android-signing.sh"
 
 concurrency:
   group: android-${{ github.ref }}
@@ -32,6 +32,8 @@ jobs:
     name: Build Android (${{ github.event.inputs.build_type || 'debug' }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Optional: create environment "android-release" in repo Settings for required reviewers
+    environment: ${{ github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' && 'android-release' || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -71,19 +73,22 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
+          set -euo pipefail
           if [ -z "${KEYSTORE_BASE64:-}" ]; then
             echo "Missing secret ANDROID_KEYSTORE_BASE64 — cannot sign release."
-            echo "Falling back to unsigned/debug-style build instructions in logs."
+            echo "See docs/SECURITY_SIGNING.md"
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > orange-groove-release.jks
+          echo "$KEYSTORE_BASE64" | base64 -d > orange-groove-upload.jks
           mkdir -p android
-          cat > android/key.properties <<EOF
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=${KEY_ALIAS:-orange-groove}
-          storeFile=../orange-groove-release.jks
-          EOF
+          # No leading spaces — Properties loader is strict
+          {
+            echo "storePassword=${KEYSTORE_PASSWORD}"
+            echo "keyPassword=${KEY_PASSWORD}"
+            echo "keyAlias=${KEY_ALIAS:-orange-groove}"
+            echo "storeFile=../orange-groove-upload.jks"
+          } > android/key.properties
+          chmod 600 android/key.properties orange-groove-upload.jks
           bash scripts/setup-android-signing.sh
 
       - name: Assemble Debug APK
@@ -123,7 +128,7 @@ jobs:
           name: app-release-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload release AAB
         if: ${{ github.event.inputs.build_type == 'bundle' }}
@@ -132,9 +137,11 @@ jobs:
           name: app-release-aab
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
-      - name: Cleanup keystore
+      - name: Cleanup keystore material
         if: always()
         run: |
-          rm -f orange-groove-release.jks android/key.properties android/app/key.properties
+          rm -f orange-groove-upload.jks orange-groove-release.jks
+          rm -f android/key.properties android/app/key.properties
+          shred -u orange-groove-upload.jks 2>/dev/null || true

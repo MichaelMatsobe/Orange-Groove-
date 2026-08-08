@@ -2,6 +2,12 @@
 
 How to create, store, use, and rotate signing material for Orange Groove **without** leaking secrets into Git.
 
+**Also read**
+
+- [`KEY_ROTATION.md`](KEY_ROTATION.md) — upload-key rotation script + Play steps  
+- [`IOS_SIGNING.md`](IOS_SIGNING.md) — Xcode / TestFlight / CI secrets  
+- [`SECURITY_SCANNING.md`](SECURITY_SCANNING.md) — CodeQL, gitleaks, npm audit, dependency review  
+
 ---
 
 ## Threat model (what we protect against)
@@ -42,14 +48,13 @@ How to create, store, use, and rotate signing material for Orange Groove **witho
 | **App signing key** | Google (Play App Signing) or you (legacy) | Final signature on devices |
 | **Debug keystore** | Auto (`~/.android/debug.keystore`) | Local debug builds only |
 
-**Recommendation:** enable **Play App Signing** on first upload. If you lose the upload key, Google can register a new one. If you also held the app signing key yourself and lose it, you cannot update the app.
+**Recommendation:** enable **Play App Signing** on first upload. If you lose the upload key, Google can register a new one.
 
 ---
 
 ## 1. Create the upload keystore (once)
 
 ```bash
-# From repo root — do NOT commit the output file
 keytool -genkeypair -v \
   -keystore orange-groove-upload.jks \
   -keyalg RSA \
@@ -59,23 +64,20 @@ keytool -genkeypair -v \
   -storetype PKCS12
 ```
 
-Prompts: name/org (can be your name), store password, key password (can match store).
+Or use the rotation helper (also exports PEM):
 
-**Password rules**
+```bash
+npm run android:rotate-key
+# → scripts/rotate-android-upload-key.sh
+```
 
-- Prefer a long random password (password manager).  
-- Never reuse your Google/Apple account password.  
-- Store password + alias + backup of `.jks` in at least **two** offline places.
-
-### Inspect the certificate (public fingerprint — safe to share)
+### Inspect fingerprint (public — safe to share)
 
 ```bash
 keytool -list -v -keystore orange-groove-upload.jks -alias orange-groove
 ```
 
-Note **SHA-256** fingerprint for Play Console / API restrictions. Fingerprints are **not** secret; the private key is.
-
-### Export a certificate only (no private key) — for Play “upload key certificate”
+### Export certificate only (for Play upload-key reset)
 
 ```bash
 keytool -export -rfc \
@@ -84,162 +86,72 @@ keytool -export -rfc \
   -file upload_certificate.pem
 ```
 
-`upload_certificate.pem` can be uploaded to Play if asked; it does not contain the private key.
-
 ---
 
 ## 2. Local secure layout
 
 ```text
 repo/                          (git)
-  android/                     (gitignored native project)
-  android/key.properties       (gitignored — passwords)
+  android/                     (gitignored)
+  android/key.properties       (gitignored)
   scripts/android/signing.gradle
 
-OUTSIDE git / encrypted backup:
+OUTSIDE git:
   orange-groove-upload.jks
   password manager entry
-  printed recovery sheet (optional)
 ```
-
-`android/key.properties` example:
-
-```properties
-storePassword=***
-keyPassword=***
-keyAlias=orange-groove
-storeFile=../orange-groove-upload.jks
-```
-
-`storeFile` is relative to the **`android/`** Gradle root.
-
-Apply wiring:
 
 ```bash
 npm run android:setup-signing
+npm run android:verify-signing
 ```
 
 ---
 
-## 3. GitHub Actions secrets (CI)
-
-### Required secrets for signed builds
+## 3. GitHub Actions secrets
 
 | Secret | Contents |
 |--------|----------|
-| `ANDROID_KEYSTORE_BASE64` | Base64 of the `.jks` / `.keystore` file |
-| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
-| `ANDROID_KEY_PASSWORD` | Key password |
-| `ANDROID_KEY_ALIAS` | e.g. `orange-groove` |
+| `ANDROID_KEYSTORE_BASE64` | `bash scripts/keystore-to-base64.sh orange-groove-upload.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | store password |
+| `ANDROID_KEY_PASSWORD` | key password |
+| `ANDROID_KEY_ALIAS` | `orange-groove` |
 
-### Encode keystore for the secret (local machine only)
-
-```bash
-bash scripts/keystore-to-base64.sh orange-groove-upload.jks
-# prints base64 — paste into GitHub Secret ANDROID_KEYSTORE_BASE64
-# does not write the keystore into the repo
-```
-
-Or:
-
-```bash
-# Linux
-base64 -w0 orange-groove-upload.jks
-# macOS
-base64 -i orange-groove-upload.jks
-```
-
-### Hardening CI
-
-1. **Settings → Secrets and variables → Actions** — repository secrets (not variables).  
-2. Prefer an **Environment** named `android-release` with required reviewers for `release` / `bundle` workflows.  
-3. Never pass secrets to workflows triggered by `pull_request` from forks. Our `android.yml` signs only on `workflow_dispatch` when you choose release/bundle.  
-4. Rotate passwords if a secret might have been exposed; generate a new upload key and register it in Play if needed.  
-
-### Environment protection (recommended)
-
-1. Repo → **Settings → Environments → New environment** → `android-release`  
-2. Enable **Required reviewers**  
-3. In `android.yml`, add under the release job:
-
-```yaml
-environment: android-release
-```
-
-(See workflow file for the applied config.)
+Hardening: Environment `android-release` with required reviewers; no signing secrets on fork PRs.
 
 ---
 
-## 4. Google Play App Signing — missing enrollment steps
+## 4. Google Play App Signing
 
-1. Play Console → your app → **Setup → App signing**  
-2. Choose **Use Google-generated key** (recommended) or export/import per Google’s wizard  
-3. First upload an AAB signed with your **upload** keystore  
-4. Play shows **App signing key certificate** and **Upload key certificate** SHA-1 / SHA-256  
-5. Use those fingerprints for Firebase, OAuth, Maps API restrictions, etc.  
-
-### Lost upload key
-
-1. Play Console → App signing → **Request upload key reset**  
-2. Follow Google’s identity check  
-3. Generate a **new** keystore locally  
-4. Export new `upload_certificate.pem` and submit as instructed  
-5. Update local `key.properties` + GitHub secrets  
-
-### Lost app signing key (only if you managed it yourself)
-
-- **Cannot** update the existing listing. You must publish a new app id.  
-- This is why Play App Signing is strongly recommended.
+1. Play Console → **Setup → App signing** → Google-managed key  
+2. Upload AAB signed with **upload** keystore  
+3. Copy SHA-256 fingerprints for API restrictions  
+4. Lost upload key → request reset → new keystore via `npm run android:rotate-key`  
 
 ---
 
-## 5. iOS certificates (brief)
+## 5. Rotation
 
-| Asset | Where |
-|-------|--------|
-| Apple Developer membership | developer.apple.com |
-| Distribution certificate | Xcode → Settings → Accounts → Manage Certificates |
-| Provisioning profile | App Store Connect / Xcode automatic signing |
-| App ID | `com.orangegroove.app` |
-
-Prefer **Xcode automatic signing** for the Capacitor `ios/` project. Store distribution certs in the Keychain; for CI use [Fastlane match](https://docs.fastlane.tools/actions/match/) or App Store Connect API keys — **not** committed files.
+See **[KEY_ROTATION.md](KEY_ROTATION.md)**.
 
 ---
 
-## 6. Rotation checklist
+## 6. iOS
 
-- [ ] Generate new upload keystore  
-- [ ] Export new certificate PEM  
-- [ ] Register with Play (reset upload key if required)  
-- [ ] Update `android/key.properties` locally  
-- [ ] Update all four GitHub secrets  
-- [ ] Build a test AAB and upload to internal testing track  
-- [ ] Securely delete old keystore copies after cutover  
+See **[IOS_SIGNING.md](IOS_SIGNING.md)**.
 
 ---
 
-## 7. What never belongs in Git
+## 7. Security scanning in CI
+
+See **[SECURITY_SCANNING.md](SECURITY_SCANNING.md)**.
+
+---
+
+## 8. What never belongs in Git
 
 ```text
-*.jks / *.keystore
+*.jks / *.keystore / *.p12
 key.properties
-upload_certificate.pem   # optional to ignore; not secret but clutter
-*.mobileprovision
-AuthKey_*.p8             # Apple API keys
+*.mobileprovision / AuthKey_*.p8
 ```
-
-Verified via root `.gitignore`.
-
----
-
-## 8. Related commands
-
-```bash
-npm run android:setup-signing
-npm run android:release
-npm run android:bundle
-bash scripts/keystore-to-base64.sh path/to.jks
-bash scripts/verify-signing-setup.sh
-```
-
-See also: `BUILD_APK.md` (build pipeline), `NATIVE_BUILD.md` (store overview).

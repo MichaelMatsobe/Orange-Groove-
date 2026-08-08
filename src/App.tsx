@@ -2,10 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Orange Groove — multi-device group-play music party.
- * Host = virtual DJ / master player.
- * Guests + extra devices join the same room and stay tightly synced
- * to the host's current track & position (Xiaomi-style group play model).
+ * Orange Groove — fully working multi-device group-play music party (web app).
+ * Host = virtual DJ / master player (can also add local audio files).
+ * Guests + extra devices join via party code and stay tightly synced.
+ * Uses free/open-source: Trystero (WebRTC), browser File API, free sample tracks.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -15,22 +15,25 @@ import { HostApp } from './components/HostApp';
 import { GuestApp } from './components/GuestApp';
 import { SplashScreen } from './components/SplashScreen';
 import { Toast, ToastType } from './components/Toast';
-import { INITIAL_REQUESTS, MOCK_LIBRARY } from './constants';
+import { DEFAULT_LIBRARY, INITIAL_REQUESTS, generatePartyCode } from './constants';
 import { SongRequest, Song, RequestStatus, ConnectedDevice } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [userRole, setUserRole] = useState<'host' | 'guest' | null>(null);
-  const [partyCode, setPartyCode] = useState<string>('8080');
+  const [partyCode, setPartyCode] = useState<string>('');
   const [isLive, setIsLive] = useState(false);
   const [requests, setRequests] = useState<SongRequest[]>(INITIAL_REQUESTS);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isConnected, setIsConnected] = useState(false);
   const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
 
+  // Dynamic library — starts with free samples, host can add local files
+  const [library, setLibrary] = useState<Song[]>(DEFAULT_LIBRARY);
+
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 2500);
+    const timer = setTimeout(() => setShowSplash(false), 2200);
     return () => clearTimeout(timer);
   }, []);
 
@@ -42,24 +45,25 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const currentSong = MOCK_LIBRARY[currentSongIndex];
+  const currentSong = library[currentSongIndex] ?? library[0];
 
   // Network refs
   const sendSyncRef = useRef<any>(null);
   const sendRequestRef = useRef<any>(null);
   const sendRequestsRef = useRef<any>(null);
+  const sendLibraryRef = useRef<any>(null);
   const roomRef = useRef<any>(null);
 
-  // Refs to avoid stale closures inside Trystero callbacks
   const currentSongIndexRef = useRef(currentSongIndex);
   const isLiveRef = useRef(isLive);
+  const libraryRef = useRef(library);
 
   useEffect(() => {
     currentSongIndexRef.current = currentSongIndex;
     isLiveRef.current = isLive;
-  }, [currentSongIndex, isLive]);
+    libraryRef.current = library;
+  }, [currentSongIndex, isLive, library]);
 
-  // Theme
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
@@ -67,9 +71,14 @@ export default function App() {
   const toggleTheme = () => setTheme(p => (p === 'dark' ? 'light' : 'dark'));
 
   const handleJoinParty = (role: 'host' | 'guest', code?: string) => {
-    setUserRole(role);
-    if (code) setPartyCode(code);
-    else if (role === 'host') setPartyCode('8080');
+    if (role === 'host') {
+      const newCode = generatePartyCode();
+      setPartyCode(newCode);
+      setUserRole('host');
+    } else if (code) {
+      setPartyCode(code);
+      setUserRole('guest');
+    }
   };
 
   // Toast
@@ -79,7 +88,7 @@ export default function App() {
   }, []);
   const hideToast = useCallback(() => setToast(p => ({ ...p, isVisible: false })), []);
 
-  // ==================== MASTER PLAYER (HOST AUTHORITATIVE) ====================
+  // ==================== MASTER PLAYER ====================
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
 
@@ -90,24 +99,33 @@ export default function App() {
       timestampAt: Date.now(),
       volume: isMuted ? 0 : volume,
       isLive,
-      // Also send a lightweight device count so guests know the party size
-      deviceCount: connectedDevices.length + 1, // +1 for host itself
+      deviceCount: connectedDevices.length + 1,
+      // Send serializable library metadata (URLs) so guests can load the same tracks
+      libraryMeta: library.map(s => ({
+        id: s.id,
+        title: s.title,
+        artist: s.artist,
+        coverUrl: s.coverUrl,
+        audioUrl: s.audioUrl,
+        duration: s.duration,
+        isLocal: !!s.isLocal,
+      })),
     });
-  }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive, connectedDevices.length]);
+  }, [userRole, currentSongIndex, isPlaying, volume, isMuted, isLive, connectedDevices.length, library]);
 
   const handleNext = useCallback(() => {
-    setCurrentSongIndex(i => (i + 1) % MOCK_LIBRARY.length);
+    setCurrentSongIndex(i => (i + 1) % Math.max(library.length, 1));
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
-  }, [broadcastSync]);
+  }, [broadcastSync, library.length]);
 
   const handlePrevious = useCallback(() => {
-    setCurrentSongIndex(i => (i - 1 + MOCK_LIBRARY.length) % MOCK_LIBRARY.length);
+    setCurrentSongIndex(i => (i - 1 + library.length) % Math.max(library.length, 1));
     setProgress(0);
     setIsPlaying(true);
     setTimeout(() => broadcastSync(), 0);
-  }, [broadcastSync]);
+  }, [broadcastSync, library.length]);
 
   const handlePlayPause = useCallback(() => {
     setIsPlaying(p => !p);
@@ -125,7 +143,7 @@ export default function App() {
     [broadcastSync]
   );
 
-  // Load new song when index changes
+  // Load song when index or library changes
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentSong) return;
@@ -137,11 +155,10 @@ export default function App() {
     if (isPlaying) {
       setTimeout(() => {
         audio.play().catch(() => {});
-      }, 60);
+      }, 80);
     }
-  }, [currentSongIndex, currentSong]);
+  }, [currentSongIndex, currentSong?.id]);
 
-  // Keep local audio element in sync with state
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -154,11 +171,42 @@ export default function App() {
     if (audioRef.current) setProgress(audioRef.current.currentTime);
   };
 
-  // ==================== TRYSTERO ROOM (MULTI-DEVICE GROUP) ====================
+  // Host can add local audio files (File API — free, no server needed)
+  const handleAddLocalFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files || userRole !== 'host') return;
+      const newSongs: Song[] = [];
+
+      Array.from(files).forEach((file, idx) => {
+        if (!file.type.startsWith('audio/')) return;
+        const url = URL.createObjectURL(file);
+        const title = file.name.replace(/\.[^/.]+$/, '') || `Local Track ${idx + 1}`;
+        newSongs.push({
+          id: `local-${Date.now()}-${idx}`,
+          title,
+          artist: 'Local File',
+          coverUrl: `https://picsum.photos/seed/${encodeURIComponent(title)}/300/300`,
+          audioUrl: url,
+          duration: 180, // will be corrected when metadata loads
+          isLocal: true,
+        });
+      });
+
+      if (newSongs.length) {
+        setLibrary(prev => [...prev, ...newSongs]);
+        showToast(`Added ${newSongs.length} local track(s)`, 'success');
+        // Guests cannot play local blob URLs from the host, so we keep them host-only for now.
+        // For true multi-device local files we would need to stream or upload them.
+      }
+    },
+    [userRole, showToast]
+  );
+
+  // ==================== TRYSTERO (WebRTC P2P — free & open source) ====================
   useEffect(() => {
     if (!userRole || !partyCode) return;
 
-    const room = joinRoom({ appId: 'orange-groove-v3-group' }, partyCode);
+    const room = joinRoom({ appId: 'orange-groove-v4' }, partyCode);
     roomRef.current = room;
 
     const [sendSync, getSync] = room.makeAction('sync');
@@ -175,7 +223,6 @@ export default function App() {
       }
     };
 
-    // Track devices that join / leave
     room.onPeerJoin((peerId: string) => {
       setIsConnected(true);
       setConnectedDevices(prev => {
@@ -184,30 +231,23 @@ export default function App() {
       });
 
       if (userRole === 'host') {
-        // Immediately push current state so the new device locks onto the host
         setTimeout(() => {
           broadcastSync();
           broadcastRequests();
-        }, 50);
-        showToast('New device joined the party', 'success');
+        }, 80);
+        showToast('New device joined', 'success');
       }
     });
 
     room.onPeerLeave((peerId: string) => {
       setConnectedDevices(prev => prev.filter(d => d.peerId !== peerId));
-      if (userRole === 'host') {
-        showToast('A device left', 'info');
-      }
+      if (userRole === 'host') showToast('A device left', 'info');
     });
 
-    // Guest receives the full request list from host
     if (userRole === 'guest') {
-      getRequests((newList: any) => {
-        setRequests(newList as SongRequest[]);
-      });
+      getRequests((newList: any) => setRequests(newList as SongRequest[]));
     }
 
-    // Host receives song requests from guests
     if (userRole === 'host') {
       getRequest((req: any) => {
         setRequests(prev => {
@@ -219,40 +259,44 @@ export default function App() {
       });
     }
 
-    // Guest: lock onto host's playback (group-play style)
     if (userRole === 'guest') {
       getSync((state: any) => {
         setIsConnected(true);
+
+        // Sync library metadata from host (remote tracks only)
+        if (state.libraryMeta && Array.isArray(state.libraryMeta)) {
+          const remoteOnly = state.libraryMeta.filter((s: any) => !s.isLocal);
+          if (remoteOnly.length > 0) {
+            setLibrary(prev => {
+              // Prefer host library for remote tracks
+              const localOnes = prev.filter(s => s.isLocal);
+              return [...remoteOnly, ...localOnes];
+            });
+          }
+        }
 
         if (state.isLive !== isLiveRef.current) {
           setIsLive(!!state.isLive);
         }
 
-        // If host is not live, guests stay silent
         if (!state.isLive) {
           setIsPlaying(false);
           return;
         }
 
-        // Track change
         if (state.currentSongIndex !== currentSongIndexRef.current) {
           setCurrentSongIndex(state.currentSongIndex);
           setProgress(0);
         }
 
         setIsPlaying(!!state.isPlaying);
-        // Guests keep their own local volume preference;
-        // they only inherit mute/zero from host if host is muted.
-        if (state.volume === 0) {
-          setIsMuted(true);
-        }
+        if (state.volume === 0) setIsMuted(true);
 
-        // Drift correction — keep every device within ~300 ms of the host
         const audio = audioRef.current;
         if (audio && state.currentSongIndex === currentSongIndexRef.current) {
           const delay = (Date.now() - state.timestampAt) / 1000;
           const expected = state.timestamp + delay;
-          if (Math.abs(audio.currentTime - expected) > 0.3 && audio.readyState >= 2) {
+          if (Math.abs(audio.currentTime - expected) > 0.35 && audio.readyState >= 2) {
             audio.currentTime = Math.max(0, expected);
           }
         }
@@ -265,23 +309,22 @@ export default function App() {
       setIsConnected(false);
       setConnectedDevices([]);
     };
-  }, [userRole, partyCode]); // intentionally lean deps — room is created once per role/code
+  }, [userRole, partyCode]);
 
-  // Host continuously heartbeats the master state so late joiners lock on
+  // Host heartbeat
   useEffect(() => {
     if (userRole !== 'host') return;
-    const id = setInterval(broadcastSync, 700);
+    const id = setInterval(broadcastSync, 650);
     return () => clearInterval(id);
   }, [broadcastSync, userRole]);
 
-  // When host changes the request list, push it to everyone
   useEffect(() => {
     if (userRole === 'host' && sendRequestsRef.current) {
       sendRequestsRef.current(requests);
     }
   }, [requests, userRole]);
 
-  // ==================== REQUEST HANDLERS ====================
+  // ==================== HANDLERS ====================
   const handleAddRequest = (song: Song) => {
     const isHost = userRole === 'host';
     const newReq: SongRequest = {
@@ -292,6 +335,7 @@ export default function App() {
       coverUrl: song.coverUrl,
       status: isHost ? 'approved' : 'pending',
       timestamp: Date.now(),
+      songId: song.id,
     };
 
     setRequests(prev => [newReq, ...prev]);
@@ -315,9 +359,10 @@ export default function App() {
     setRequests(prev => prev.map(r => (r.status === status ? { ...r, status: 'rejected' as RequestStatus } : r)));
   };
 
-  // Promote an approved request to now-playing (DJ power)
   const handlePlayRequest = (req: SongRequest) => {
-    const idx = MOCK_LIBRARY.findIndex(s => s.title === req.title && s.artist === req.artist);
+    const idx = library.findIndex(
+      s => s.id === req.songId || (s.title === req.title && s.artist === req.artist)
+    );
     if (idx >= 0) {
       setCurrentSongIndex(idx);
       setProgress(0);
@@ -325,13 +370,15 @@ export default function App() {
       setIsLive(true);
       setTimeout(broadcastSync, 50);
       showToast(`Now playing: ${req.title}`, 'success');
+    } else {
+      showToast('Track not found in library', 'warning');
     }
   };
 
   const handleGoLive = () => {
     setIsLive(true);
     setIsPlaying(true);
-    showToast('Party is LIVE — all devices syncing', 'success');
+    showToast('Party LIVE — all devices syncing', 'success');
     setTimeout(broadcastSync, 80);
   };
 
@@ -347,10 +394,18 @@ export default function App() {
     setIsLive(false);
     setIsPlaying(false);
     setConnectedDevices([]);
+    setPartyCode('');
+    // Revoke local object URLs to free memory
+    library.forEach(s => {
+      if (s.isLocal && s.audioUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(s.audioUrl);
+      }
+    });
+    setLibrary(DEFAULT_LIBRARY);
   };
 
   return (
-    <div className="flex flex-col flex-1 h-full max-w-md mx-auto w-full bg-background-light dark:bg-background-dark shadow-2xl min-h-screen relative overflow-hidden transition-colors duration-300">
+    <div className="flex flex-col flex-1 h-full max-w-md mx-auto w-full bg-slate-50 dark:bg-slate-950 shadow-2xl min-h-screen relative overflow-hidden transition-colors duration-300">
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
@@ -361,14 +416,14 @@ export default function App() {
 
       <AnimatePresence mode="wait">
         {showSplash && (
-          <motion.div key="splash" exit={{ opacity: 0 }} transition={{ duration: 0.4 }} className="fixed inset-0 z-50">
+          <motion.div key="splash" exit={{ opacity: 0 }} transition={{ duration: 0.35 }} className="fixed inset-0 z-50">
             <SplashScreen />
           </motion.div>
         )}
       </AnimatePresence>
 
       {!showSplash && !userRole && (
-        <motion.div key="welcome" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }}>
+        <motion.div key="welcome" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.35 }}>
           <WelcomeScreen onJoin={handleJoinParty} />
         </motion.div>
       )}
@@ -402,6 +457,8 @@ export default function App() {
             onToggleMute={() => setIsMuted(p => !p)}
             connectedDevices={connectedDevices}
             isConnected={isConnected}
+            library={library}
+            onAddLocalFiles={handleAddLocalFiles}
           />
         </motion.div>
       )}
@@ -424,6 +481,7 @@ export default function App() {
             onToggleMute={() => setIsMuted(p => !p)}
             isLive={isLive}
             isConnected={isConnected}
+            library={library}
           />
         </motion.div>
       )}

@@ -26,6 +26,14 @@ interface GuestAppProps {
 export const GuestApp: React.FC<GuestAppProps> = (props) => {
   const [activeTab, setActiveTab] = React.useState<'now-playing' | 'library'>('now-playing');
 
+  const statusLabel = props.isConnected
+    ? props.isLive && props.isPlaying
+      ? 'SYNCED ON WI‑FI'
+      : props.isLive
+        ? 'CONNECTED · WAITING'
+        : 'CONNECTED · PARTY OFFLINE'
+    : 'SEARCHING NETWORK…';
+
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
       <header className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
@@ -37,9 +45,7 @@ export const GuestApp: React.FC<GuestAppProps> = (props) => {
             <h2 className="font-bold text-sm leading-tight">Party #{props.partyCode}</h2>
             <div className="flex items-center gap-1.5">
               {props.isConnected ? <Wifi className="w-3.5 h-3.5 text-green-500" /> : <WifiOff className="w-3.5 h-3.5 text-slate-400" />}
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                {props.isLive && props.isPlaying ? 'SYNCED TO HOST' : props.isLive ? 'WAITING' : 'PARTY OFFLINE'}
-              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{statusLabel}</span>
             </div>
           </div>
         </div>
@@ -71,7 +77,7 @@ export const GuestApp: React.FC<GuestAppProps> = (props) => {
               <div className="mb-6 text-center">
                 <h3 className="text-2xl font-bold mb-1 truncate">{props.currentSong.title}</h3>
                 <p className="text-slate-500 dark:text-slate-400 text-lg">{props.currentSong.artist}</p>
-                <p className="text-xs text-rose-500 mt-2 font-medium">Controlled by Host DJ</p>
+                <p className="text-xs text-rose-500 mt-2 font-medium">Synced to Host DJ over Wi‑Fi</p>
               </div>
 
               <div className="mb-6">
@@ -113,7 +119,7 @@ export const GuestApp: React.FC<GuestAppProps> = (props) => {
         {activeTab === 'library' && (
           <div className="space-y-4">
             <h3 className="font-bold text-lg">Request a Song</h3>
-            <p className="text-sm text-slate-500">The host DJ decides what plays next.</p>
+            <p className="text-sm text-slate-500">The host DJ decides what plays next on the network.</p>
             <div className="grid gap-3">
               {props.library.filter(s => !s.isLocal).map(song => (
                 <button key={song.id} onClick={() => props.onAddRequest(song)}

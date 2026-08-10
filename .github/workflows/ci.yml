@@ -8,7 +8,7 @@ on:
 
 jobs:
   web:
-    name: Lint & web build
+    name: Lint, test & web build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +19,13 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm ci
+        run: npm ci || npm install
 
       - name: Typecheck
         run: npm run lint
+
+      - name: Unit tests
+        run: npm test
 
       - name: Production build
         run: npm run build

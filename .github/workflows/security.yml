@@ -17,28 +17,62 @@ permissions:
   pull-requests: read
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # npm audit — report vulnerabilities; never hard-fail the workflow on findings
+  # (app runtime is unchanged; this is observability only)
+  # ---------------------------------------------------------------------------
   npm-audit:
     name: npm audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
-      - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
-      - name: Full audit report
-        run: npm audit --json > npm-audit.json || true
+
+      - name: Install dependencies
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            npm ci || npm install --no-fund --no-audit
+          else
+            npm install --no-fund --no-audit
+          fi
+
+      - name: Production dependency audit (report)
+        id: audit_prod
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = clean, 1 = vulnerabilities found — both OK for this job
+          if [ "$code" -eq 0 ] || [ "$code" -eq 1 ]; then
+            exit 0
+          fi
+          # Only fail on tooling errors (npm crash, etc.)
+          exit "$code"
+
+      - name: Full audit JSON report
+        if: always()
+        run: |
+          set +e
+          npm audit --json > npm-audit.json 2>/dev/null || echo '{"error":"audit_failed"}' > npm-audit.json
+          exit 0
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: npm-audit-report
           path: npm-audit.json
           retention-days: 30
+          if-no-files-found: warn
 
+  # ---------------------------------------------------------------------------
+  # Secret scan — official gitleaks binary (no org license required)
+  # ---------------------------------------------------------------------------
   gitleaks:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -46,26 +80,47 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.21.2"
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          gitleaks version
+
+      - name: Run gitleaks
+        run: gitleaks detect --source . --verbose --redact --exit-code 1
+
+  # ---------------------------------------------------------------------------
+  # CodeQL — JS/TS does not need autobuild; autobuild often fails on Vite apps
+  # ---------------------------------------------------------------------------
   codeql:
     name: CodeQL (JavaScript/TypeScript)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: javascript
+          languages: javascript-typescript
           queries: security-extended
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-      - name: Analyze
-        uses: github/codeql-action/analyze@v3
+          # Config file optional; none required for default scan
 
+      # Intentionally NO autobuild step.
+      # For JavaScript/TypeScript, CodeQL extracts from source without a compile.
+      # Autobuild tries to detect Maven/Gradle/etc. and fails on pure frontend repos.
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  # ---------------------------------------------------------------------------
+  # Dependency review — PRs only
+  # ---------------------------------------------------------------------------
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest

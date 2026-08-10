@@ -17,6 +17,8 @@ Orange Groove uses free GitHub-native and OSS scanners plus **Dependabot**.
 | Secret scanning + push protection | Block accidental secret pushes |
 | Code scanning | Surfaces CodeQL results |
 
+If **Code scanning** is disabled, the CodeQL job cannot upload results — enable it under the same settings page.
+
 Details: [`DEPENDABOT.md`](DEPENDABOT.md)
 
 ---
@@ -25,7 +27,7 @@ Details: [`DEPENDABOT.md`](DEPENDABOT.md)
 
 | Workflow | File | What it does |
 |----------|------|----------------|
-| **Security scanning** | `security.yml` | npm audit, Gitleaks, CodeQL, dependency-review (PRs) |
+| **Security scanning** | `security.yml` | npm audit (report), Gitleaks CLI, CodeQL, dependency-review (PRs) |
 | **CI** | `ci.yml` | Typecheck + production web build |
 | **Android** | `android.yml` | APK/AAB |
 | **iOS TestFlight** | `ios.yml` | Fastlane Match + upload |
@@ -34,30 +36,47 @@ Details: [`DEPENDABOT.md`](DEPENDABOT.md)
 
 ---
 
-## Scanners
+## Job behaviour (designed not to false-fail)
 
 ### npm audit
+
+- Installs with `npm ci`, falls back to `npm install` if the lockfile is out of date  
+- Findings (exit code 1) are **reported** and uploaded as `npm-audit-report` — they do **not** fail the job  
+- Only npm tooling crashes fail the job  
+- App source and runtime are unchanged  
+
+### Gitleaks
+
+- Uses the **official gitleaks binary** (not `gitleaks-action`, which requires an org license)  
+- Fails only if real secrets are detected in git history  
+
+### CodeQL
+
+- Language: `javascript-typescript`  
+- **No autobuild** — Vite/React apps are extracted from source; autobuild was a common failure cause  
+- Results appear under **Security → Code scanning** when Code scanning is enabled on the repo  
+
+### Dependency review
+
+- Runs on **pull_request** only (skipped on `schedule` / `push`)  
+
+---
+
+## Interpreting results
+
+| Job | Red X means |
+|-----|-------------|
+| npm audit | Unexpected npm failure (not “vulns found”) |
+| gitleaks | Possible secret in history — rotate & purge |
+| CodeQL | Analysis error or real code alert — open Security tab |
+| dependency-review | PR introduces a high-severity vulnerable package |
+
+Local:
 
 ```bash
 npm audit
 npm run security:audit
 ```
-
-### Gitleaks
-
-Full-history secret scan via `gitleaks/gitleaks-action@v2`.
-
-### CodeQL
-
-JS/TS `security-extended` → **Security → Code scanning**.
-
-### Dependency review
-
-On pull requests: fails on **high** severity new vulnerabilities.
-
-### Dependabot
-
-Weekly PRs for npm and GitHub Actions; security alerts when advisories publish.
 
 ---
 

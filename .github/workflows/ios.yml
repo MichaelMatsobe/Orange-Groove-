@@ -78,7 +78,7 @@ jobs:
         run: bundle install
 
       - name: SSH agent for Match repo
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@v0.10.0
         if: ${{ secrets.MATCH_SSH_PRIVATE_KEY != '' }}
         with:
           ssh-private-key: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}

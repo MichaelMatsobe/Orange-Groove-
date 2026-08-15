@@ -57,6 +57,35 @@ Go Live ─────────────►        Auto-syncs track + pos
 5. Host: Go Live
 ```
 
+### C — Party from anywhere (across networks)
+
+By default, peers connect directly over WebRTC (free Google STUN included), which works on
+same-LAN/hotspot setups. To let guests join from **other networks** (e.g. cellular data, a
+different Wi‑Fi), add a TURN relay so WebRTC can punch through strict NAT.
+
+**Recommended provider: [Metered.ca TURN](https://www.metered.ca/turn-server)** — purpose-built
+TURN hosting with a free tier (2 GB relay / mo) and static credentials. Alternatives:
+[Cloudflare Calls](https://developers.cloudflare.com/calls/turn/) (free, but time-limited
+tokens need a small code change) or a self-hosted [coturn](https://github.com/coturn/coturn)
+container.
+
+1. Sign up at metered.ca → **TURN Server** → create a server (free plan gives
+   `global.metered.ca`).
+2. Copy the **TURN URL**, **username**, and **credential** from the dashboard.
+3. Set these as build-time env vars (Vite inlines them into the client bundle):
+
+```bash
+VITE_TURN_URL=turn:global.metered.ca:3478
+VITE_TURN_USERNAME=<username>
+VITE_TURN_CREDENTIAL=<credential>
+```
+
+Or paste them into your hosting dashboard / the project Keys tab (e.g. for Freebuff: Keys/API
+keys UI → `VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`).
+
+4. Rebuild & deploy — the app auto-detects the vars via `src/utils/rtcConfig.ts` (no code
+   changes needed). Guests on any network can now join the party.
+
 ---
 
 ## Quick start (development)
@@ -203,7 +232,8 @@ Orange-Groove-/
 
 - Codes are ephemeral (while host is in the party).  
 - No account required for core group play.  
-- Audio stays on each device; sample track URLs are public demo files.
+- Audio stays on each device; sample track URLs are public demo files.  
+- Without TURN env vars, parties are same-LAN/hotspot only; with them, cross-network works.
 
 ---
 
@@ -216,7 +246,8 @@ Orange-Groove-/
 - [x] Local file upload (host)  
 - [x] PWA install + service worker  
 - [x] Static deploy configs (Vercel / Netlify)  
-- [ ] Stream host local files to guests over LAN  
+- [x] Stream host local files to guests (chunked Trystero transfer)  
+- [x] TURN relay support for cross-network parties (env-configurable)  
 - [ ] Native “start hotspot” helper  
 - [ ] Desktop installers (Tauri / Electron)  
 

@@ -30,8 +30,10 @@ import {
   clearEncodeCache,
 } from './utils/fileTransfer';
 import { probeAudioFile } from './utils/audioMetadata';
-import { updateMediaSession, setMediaSessionPlayback } from './native/backgroundAudio';
+import { updateMediaSession, setMediaSessionPlayback, enableNativeBackgroundAudio } from './native/backgroundAudio';
 import { startPartyHotspot } from './native/hotspot';
+import { buildRtcConfig } from './utils/rtcConfig';
+import { loadSession, saveSession, clearSession, sanitizeLibraryForStorage } from './utils/session';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -102,6 +104,8 @@ export default function App() {
       setIsLive(false);
       setIsPlaying(false);
       setCurrentSongIndex(0);
+      // Native: keep screen awake during long parties; no-op on web.
+      void enableNativeBackgroundAudio();
     } else if (code && code.length >= 6) {
       setPartyCode(code);
       setUserRole('guest');
@@ -114,6 +118,36 @@ export default function App() {
     setToast({ message, type, isVisible: true });
   }, []);
   const hideToast = useCallback(() => setToast((p) => ({ ...p, isVisible: false })), []);
+
+  // Resume a saved host party after a refresh; the Trystero room effect below
+  // re-enters the same room automatically once role + code are restored.
+  useEffect(() => {
+    const session = loadSession();
+    if (!session) return;
+    setUserRole('host');
+    setPartyCode(session.partyCode);
+    setLibrary(session.library);
+    setRequests(session.requests);
+    setCurrentSongIndex(session.currentSongIndex);
+    setIsPlaying(session.isPlaying);
+    setIsLive(session.isLive);
+    showToast('Party restored — resuming', 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the host session so an accidental refresh doesn't kill the party.
+  useEffect(() => {
+    if (userRole !== 'host' || !partyCode) return;
+    saveSession({
+      role: 'host',
+      partyCode,
+      library: sanitizeLibraryForStorage(library),
+      requests,
+      currentSongIndex,
+      isPlaying,
+      isLive,
+    });
+  }, [userRole, partyCode, library, requests, currentSongIndex, isPlaying, isLive]);
 
   const buildLibraryMeta = useCallback(() => {
     return libraryRef.current.map((s) => ({
@@ -346,7 +380,7 @@ export default function App() {
   useEffect(() => {
     if (!userRole || !partyCode) return;
 
-    const room = joinRoom({ appId: TRYSTERO_APP_ID }, partyCode);
+    const room = joinRoom({ appId: TRYSTERO_APP_ID, rtcConfig: buildRtcConfig() }, partyCode);
     roomRef.current = room;
 
     const [sendSync, getSync] = room.makeAction('sync');
@@ -684,6 +718,7 @@ export default function App() {
     incomingChunksRef.current.clear();
     requestedFilesRef.current.clear();
     clearEncodeCache();
+    clearSession();
     setLibrary(DEFAULT_LIBRARY);
     setCurrentSongIndex(0);
   };

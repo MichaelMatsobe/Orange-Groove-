@@ -104,9 +104,12 @@ Open `http://localhost:3000` on two devices on the same network.
 | `npm run dev` | Vite frontend (port 3000) |
 | `npm run dev:server` | Optional Express API (port 4000) |
 | `npm run dev:full` | Frontend + backend |
-| `npm run build` | Production build → `dist/` |
+| `npm run build` | Web production build → `dist/` |
+| `npm run build:native` | Native (Capacitor) build — bundles the real keep-awake / native-settings plugins |
+| `npm run cap:sync` | `build:native` + `npx cap sync` (both platforms) |
 | `npm run preview` | Serve production build locally |
 | `npm run lint` | Typecheck |
+| `npm run test` | Vitest unit tests |
 
 ---
 
@@ -142,14 +145,34 @@ location / {
 WebRTC and installable PWA need **HTTPS** (or `localhost`).  
 Use your host’s free TLS (Vercel / Netlify / Cloudflare) or Caddy / certbot.
 
-### 4. Optional backend
+### 4. Optional backend (party registry + presence)
 
 ```bash
 npm run server
-# or: node after compiling, default PORT=4000
+# default PORT=4000
 ```
 
-Set `PORT` in the environment. Frontend sync works **without** the backend (Trystero is peer-to-peer).
+Deploy `server/index.ts` (Node + Express + Socket.IO) wherever you like, then point the
+client at it with the `VITE_API_URL` build-time var:
+
+```bash
+VITE_API_URL=https://orange-groove-api.example.com npm run build
+```
+
+What the backend adds (all **optional** — frontend sync is Trystero peer-to-peer and works
+offline without it):
+
+- **Party-code validation** — guests get a clear “Party not found” warning if the code
+doesn’t exist, instead of waiting on a silent room.
+- **Host presence registry** — the host heartbeats every 15s; the registry (and the party)
+survive host refreshes and stale parties are reaped automatically (2-min TTL).
+- **Live party listing** — `GET /api/parties` for status dashboards.
+
+Endpoints: `POST /api/parties/:code/claim` (host create/re-claim), `POST /api/parties/:code/heartbeat`,
+`GET /api/parties/:code`, `DELETE /api/parties/:code`, `GET /api/parties`, `GET /api/health`.
+
+No backend configured → pure offline mode (same Wi‑Fi / hotspot parties only, which is the
+core use case).
 
 ---
 
@@ -166,15 +189,30 @@ Service worker: registered from `src/main.tsx` → caches shell for offline open
 
 ## Mobile (Capacitor)
 
+The native projects (`android/`, `ios/`) are committed to the repo. From a fresh clone:
+
 ```bash
-npm run build
-npx cap add android   # once
-npx cap add ios       # once, macOS only
-npx cap sync
-npx cap open android  # or ios
+npm install
+npm run cap:sync        # build:native + sync web assets into both projects
+npx cap open android    # or: npm run android
+npx cap open ios        # macOS only, or: npm run ios
 ```
 
 `capacitor.config.ts` uses `webDir: dist` and app id `com.orangegroove.app`.
+
+**Background audio / keep-awake are wired:**
+
+- `@capacitor-community/keep-awake` keeps the screen on during parties (called from
+  `src/native/backgroundAudio.ts`).
+- iOS `Info.plist` declares `UIBackgroundModes: audio` + local-network usage description.
+- Android manifest declares `WAKE_LOCK`, `FOREGROUND_SERVICE` and
+  `FOREGROUND_SERVICE_MEDIA_PLAYBACK` for background playback.
+- `capacitor-native-settings` opens the Android hotspot/tethering settings from the
+  host “Start / open hotspot” button.
+
+Native builds (`vite build --mode native`) bundle the real plugin packages; web builds
+swap them for empty stubs so the browser bundle stays lean. See `NATIVE_BUILD.md` for
+store signing.
 
 ---
 
@@ -248,7 +286,9 @@ Orange-Groove-/
 - [x] Static deploy configs (Vercel / Netlify)  
 - [x] Stream host local files to guests (chunked Trystero transfer)  
 - [x] TURN relay support for cross-network parties (env-configurable)  
-- [ ] Native “start hotspot” helper  
+- [x] Capacitor Android + iOS projects (committed) with background-audio wiring  
+- [x] Optional presence backend (party validation, host heartbeat, refresh survival)  
+- [x] Host “start hotspot” helper (opens Android tether settings / iOS instructions)  
 - [ ] Desktop installers (Tauri / Electron)  
 
 ---

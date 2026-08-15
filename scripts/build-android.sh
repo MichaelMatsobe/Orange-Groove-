@@ -10,8 +10,8 @@ cd "$ROOT"
 echo "==> npm ci / install"
 if [[ -f package-lock.json ]]; then npm ci; else npm install; fi
 
-echo "==> vite build"
-npm run build
+echo "==> vite build (native mode — real Capacitor plugins)"
+npm run build:native
 
 if [[ ! -d android ]]; then
   echo "==> cap add android"

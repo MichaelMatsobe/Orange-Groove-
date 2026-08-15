@@ -9,20 +9,23 @@ Orange Groove is a Capacitor app. **Store-signed binaries require your own devel
 | Android | [Google Play Console](https://play.google.com/console) account, JDK 17+, Android Studio |
 | iOS | [Apple Developer Program](https://developer.apple.com) ($99/yr), macOS, Xcode |
 
-## 1. Generate web assets
+## 1. Generate web assets (native mode)
 
 ```bash
 npm install
-npm run build
+npm run build:native   # = vite build --mode native (bundles real Capacitor plugins)
 ```
 
-## 2. Add native projects (once)
+## 2. Native projects
+
+`android/` and `ios/` are **committed** to the repo. To (re)sync web assets after code
+changes:
 
 ```bash
-npx cap add android
-npx cap add ios   # macOS only
-npx cap sync
+npm run cap:sync       # build:native + npx cap sync
 ```
+
+(Re-add a platform from scratch only if needed: `npx cap add android` / `npx cap add ios`.)
 
 ## 3. Icons (192 / 512 PNG)
 
@@ -45,20 +48,29 @@ npx capacitor-assets generate --iconBackgroundColor '#f97316'
 `src/native/hotspot.ts`:
 
 - Detects Capacitor
-- Tries optional plugin `OrangeGrooveHotspot.startLocalOnly()` (you implement in Java/Kotlin)
-- Falls back to opening system hotspot settings / user instructions
+- Tries optional custom plugin `OrangeGrooveHotspot.startLocalOnly()` (implement in
+  Java/Kotlin if you want true local-only hotspot)
+- Falls back to `capacitor-native-settings` → opens the Android wireless/tethering screen
+  (`AndroidSettings.Wireless`)
+- iOS: apps cannot toggle Personal Hotspot; users get Settings instructions
 
-**iOS limitation:** apps cannot toggle Personal Hotspot; users must enable it in Settings.
+Helper packages are already installed: `@capacitor/app`, `@capacitor-community/keep-awake`,
+`capacitor-native-settings`.
 
-Optional helper packages:
+## 5. Background audio (already wired)
 
-```bash
-npm i @capacitor/app
-npm i capacitor-native-settings   # opens Android tether settings
-npx cap sync
-```
+- **iOS** — `ios/App/App/Info.plist` declares `UIBackgroundModes: audio` (lock-screen /
+  background playback) and `NSLocalNetworkUsageDescription` for WebRTC to LAN peers.
+- **Android** — `android/app/src/main/AndroidManifest.xml` declares `WAKE_LOCK`,
+  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `INTERNET`,
+  `ACCESS_NETWORK_STATE`.
+- **Keep-awake** — `src/native/backgroundAudio.ts` calls
+  `@capacitor-community/keep-awake` on native platforms so the screen stays on during
+  parties. For long background playback on Android you can additionally install a
+  foreground-service media plugin (e.g. `@capacitor-community/media`) — not required for
+  the current screen-on party flow.
 
-## 5. Android — signed release (Play Store)
+## 6. Android — signed release (Play Store)
 
 1. Open Android Studio: `npx cap open android`
 2. Create a keystore (once):
@@ -80,7 +92,7 @@ storeFile=../orange-groove-release.jks
 5. Build → Generate Signed Bundle / APK → **AAB** for Play Store.
 6. Upload to Play Console → create release → complete store listing (icons, screenshots, privacy policy).
 
-## 6. iOS — signed release (App Store)
+## 7. iOS — signed release (App Store)
 
 1. `npx cap open ios`
 2. Xcode → Signing & Capabilities → Team = your Apple Developer team
@@ -88,14 +100,14 @@ storeFile=../orange-groove-release.jks
 4. Archive → Distribute App → App Store Connect
 5. Complete listing in App Store Connect (icons, screenshots, privacy)
 
-## 7. What we cannot do from this repo
+## 8. What we cannot do from this repo
 
 - Create your Play / Apple accounts  
 - Generate or store your release keystore / certificates  
 - Upload binaries to the stores  
 - Bypass Apple’s Personal Hotspot restrictions  
 
-## Smoke test before store submit
+## 9. Smoke test before store submit
 
 1. Two physical devices on same Wi‑Fi  
 2. Host starts party → guest joins code → Go Live  

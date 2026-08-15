@@ -28,12 +28,14 @@ import {
   splitBase64,
   decodeToObjectUrl,
   clearEncodeCache,
+  selectTransferTargets,
 } from './utils/fileTransfer';
 import { probeAudioFile } from './utils/audioMetadata';
 import { updateMediaSession, setMediaSessionPlayback, enableNativeBackgroundAudio } from './native/backgroundAudio';
 import { startPartyHotspot } from './native/hotspot';
 import { buildRtcConfig } from './utils/rtcConfig';
 import { loadSession, saveSession, clearSession, sanitizeLibraryForStorage } from './utils/session';
+import { claimParty, getParty, heartbeat, endParty } from './utils/partyApi';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -80,15 +82,21 @@ export default function App() {
 
   const currentSongIndexRef = useRef(currentSongIndex);
   const isLiveRef = useRef(isLive);
+  const isPlayingRef = useRef(isPlaying);
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
   const requestsRef = useRef(requests);
   const libraryRef = useRef(library);
 
   useEffect(() => {
     currentSongIndexRef.current = currentSongIndex;
     isLiveRef.current = isLive;
+    isPlayingRef.current = isPlaying;
+    volumeRef.current = volume;
+    isMutedRef.current = isMuted;
     requestsRef.current = requests;
     libraryRef.current = library;
-  }, [currentSongIndex, isLive, requests, library]);
+  }, [currentSongIndex, isLive, isPlaying, volume, isMuted, requests, library]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -98,7 +106,8 @@ export default function App() {
 
   const handleJoinParty = (role: 'host' | 'guest', code?: string) => {
     if (role === 'host') {
-      setPartyCode(generatePartyCode());
+      const newCode = generatePartyCode();
+      setPartyCode(newCode);
       setUserRole('host');
       setRequests([]);
       setIsLive(false);
@@ -106,6 +115,9 @@ export default function App() {
       setCurrentSongIndex(0);
       // Native: keep screen awake during long parties; no-op on web.
       void enableNativeBackgroundAudio();
+      // Optional backend: register the party so guests can validate the code
+      // and the registry survives this host's refreshes. No-op when offline.
+      void claimParty(newCode);
     } else if (code && code.length >= 6) {
       setPartyCode(code);
       setUserRole('guest');
@@ -131,7 +143,11 @@ export default function App() {
     setCurrentSongIndex(session.currentSongIndex);
     setIsPlaying(session.isPlaying);
     setIsLive(session.isLive);
-    showToast('Party restored — resuming', 'info');
+    // Re-claim the party on the optional backend so guests can still validate
+    // the code. Browsers block autoplay after a reload, so audio resumes on
+    // the first play tap — the party state itself is fully restored.
+    void claimParty(session.partyCode);
+    showToast('Party restored — tap play to resume audio', 'info');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -163,19 +179,22 @@ export default function App() {
     }));
   }, []);
 
+  // Refs mirror playback state so a broadcast sent from a setTimeout right
+  // after a button press carries the *new* state instead of the stale closure
+  // value (the 700ms interval would otherwise silently correct it later).
   const broadcastSync = useCallback(() => {
     if (userRole !== 'host' || !sendSyncRef.current || !audioRef.current) return;
     sendSyncRef.current({
       currentSongIndex: currentSongIndexRef.current,
-      isPlaying,
+      isPlaying: isPlayingRef.current,
       timestamp: audioRef.current.currentTime,
       timestampAt: Date.now(),
-      volume: isMuted ? 0 : volume,
+      volume: isMutedRef.current ? 0 : volumeRef.current,
       isLive: isLiveRef.current,
       deviceCount: connectedDevices.length + 1,
       libraryMeta: buildLibraryMeta(),
     });
-  }, [userRole, isPlaying, volume, isMuted, connectedDevices.length, buildLibraryMeta]);
+  }, [userRole, connectedDevices.length, buildLibraryMeta]);
 
   const streamLocalFile = useCallback(
     async (songId: string, peerId?: string) => {
@@ -185,15 +204,14 @@ export default function App() {
       if (!file || !song || !sendFileMetaRef.current || !sendFileChunkRef.current) return;
 
       const received = sentToPeersRef.current.get(songId) ?? new Set<string>();
-      const targets: string[] = peerId
-        ? received.has(peerId)
-          ? []
-          : [peerId]
-        : connectedDevices.map((d) => d.peerId).filter((id) => !received.has(id));
-
-      if (targets.length === 0 && peerId) return;
-      const peersArg = peerId ? [peerId] : targets.length ? targets : undefined;
-      if (peerId && targets.length === 0) return;
+      const targets = selectTransferTargets(
+        peerId,
+        received,
+        connectedDevices.map((d) => d.peerId)
+      );
+      // Nobody needs these bytes (already sent, or no peers connected) — skip
+      // the encode + send entirely instead of re-broadcasting to everyone.
+      if (targets.length === 0) return;
 
       const flightKey = `${songId}:${peerId ?? 'all'}`;
       if (inFlightRef.current.has(flightKey)) return;
@@ -215,24 +233,19 @@ export default function App() {
           originalSize: encoded.originalSize,
         };
 
-        const peerLists: (string[] | undefined)[] =
-          peersArg && peersArg.length ? peersArg.map((p) => [p]) : [undefined];
-
-        for (const plist of peerLists) {
+        // Send only to peers that still need the track (explicit target or
+        // the filtered broadcast list) so guests never re-download a file
+        // they already have.
+        for (const target of targets) {
+          const plist = [target];
           sendFileMetaRef.current(meta, plist);
           for (let i = 0; i < chunks.length; i++) {
             sendFileChunkRef.current({ songId, index: i, data: chunks[i] }, plist);
             if (i % 8 === 7) await new Promise((r) => setTimeout(r, 0));
           }
-          if (plist) {
-            const set = sentToPeersRef.current.get(songId) ?? new Set();
-            plist.forEach((p) => set.add(p));
-            sentToPeersRef.current.set(songId, set);
-          } else {
-            const set = sentToPeersRef.current.get(songId) ?? new Set();
-            connectedDevices.forEach((d) => set.add(d.peerId));
-            sentToPeersRef.current.set(songId, set);
-          }
+          const set = sentToPeersRef.current.get(songId) ?? new Set();
+          set.add(target);
+          sentToPeersRef.current.set(songId, set);
         }
       } catch (e) {
         console.error('streamLocalFile', e);
@@ -445,6 +458,15 @@ export default function App() {
     }
 
     if (userRole === 'guest') {
+      // Optional backend: confirm the party exists. When the server is
+      // reachable and says 404, the code is wrong — warn without blocking
+      // (offline parties have no backend and proceed silently).
+      void getParty(partyCode).then((res) => {
+        if (res.ok === false && res.status === 404) {
+          showToast('Party not found on server — verify the code with the host', 'warning');
+        }
+      });
+
       getRequests((newList: any) => {
         if (Array.isArray(newList)) setRequests(newList as SongRequest[]);
       });
@@ -631,6 +653,22 @@ export default function App() {
     return () => clearInterval(id);
   }, [broadcastSync, userRole]);
 
+  // Optional backend: presence beacon so the party registry keeps the party
+  // alive across host refreshes. Silent no-op when no backend is configured.
+  useEffect(() => {
+    if (userRole !== 'host' || !partyCode) return;
+    const beat = () => {
+      void heartbeat(partyCode, {
+        isLive: isLiveRef.current,
+        currentSongIndex: currentSongIndexRef.current,
+        deviceCount: connectedDevices.length + 1,
+      });
+    };
+    beat();
+    const id = setInterval(beat, 15_000);
+    return () => clearInterval(id);
+  }, [userRole, partyCode, connectedDevices.length]);
+
   useEffect(() => {
     if (userRole === 'host' && sendRequestsRef.current) {
       sendRequestsRef.current(requests);
@@ -699,6 +737,8 @@ export default function App() {
   };
 
   const handleExit = () => {
+    // Optional backend: only the host unregisters the party on exit.
+    if (userRole === 'host' && partyCode) void endParty(partyCode);
     setUserRole(null);
     setIsLive(false);
     setIsPlaying(false);

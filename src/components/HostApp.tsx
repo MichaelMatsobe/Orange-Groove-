@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Song, SongRequest, ConnectedDevice } from '../types';
+import { Song, SongRequest, ConnectedDevice, RequestStatus } from '../types';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Moon, Sun, LogOut, Radio, ListMusic, Plus, Check, X, Music,
@@ -12,7 +12,7 @@ interface HostAppProps {
   requests: SongRequest[];
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onClearAll: (status: any) => void;
+  onClearAll: (status: RequestStatus) => void;
   onAddRequest: (song: Song) => void;
   onPlayRequest?: (req: SongRequest) => void;
   onGoLive: () => void;
@@ -45,8 +45,30 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'requests' | 'library' | 'devices'>('dashboard');
   const [copied, setCopied] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const confirmClearTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deviceCount = (props.connectedDevices?.length ?? 0) + 1;
+
+  const startClearConfirm = () => {
+    if (confirmClearTimerRef.current) window.clearTimeout(confirmClearTimerRef.current);
+    setConfirmClear(true);
+    confirmClearTimerRef.current = window.setTimeout(() => {
+      setConfirmClear(false);
+      confirmClearTimerRef.current = null;
+    }, 4000);
+  };
+
+  const cancelClear = () => {
+    if (confirmClearTimerRef.current) window.clearTimeout(confirmClearTimerRef.current);
+    confirmClearTimerRef.current = null;
+    setConfirmClear(false);
+  };
+
+  const handleFilesChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+    props.onAddLocalFiles?.(e.target.files);
+    // Reset so picking the same files again re-fires onChange.
+    e.target.value = '';
+  };
 
   const handleCopyCode = async () => {
     try {
@@ -195,13 +217,13 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-400">Clear all pending?</span>
                     <button
-                      onClick={() => { props.onClearAll('pending'); setConfirmClear(false); }}
+                      onClick={() => { props.onClearAll('pending'); cancelClear(); }}
                       className="text-xs font-semibold text-white bg-red-500 px-2 py-1 rounded-md hover:bg-red-600"
                     >
                       Yes, clear
                     </button>
                     <button
-                      onClick={() => setConfirmClear(false)}
+                      onClick={cancelClear}
                       className="text-xs text-slate-500 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700"
                     >
                       Cancel
@@ -209,7 +231,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                   </div>
                 ) : (
                   <button
-                    onClick={() => { setConfirmClear(true); window.setTimeout(() => setConfirmClear(false), 4000); }}
+                    onClick={startClearConfirm}
                     className="text-xs text-red-500 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
                   >
                     Clear
@@ -259,7 +281,7 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
                 <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 text-sm font-medium text-orange-500 bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-full">
                   <Upload className="w-4 h-4" /> Add files
                 </button>
-                <input ref={fileInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => props.onAddLocalFiles?.(e.target.files)} />
+                <input ref={fileInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={handleFilesChosen} />
               </div>
               <p className="text-xs text-slate-400">Local audio is streamed to guests over Wi‑Fi / hotspot (LAN). Prefer smaller files for faster transfer.</p>
               <div className="grid gap-3">

@@ -63,7 +63,9 @@ export async function startPartyHotspot(): Promise<HotspotResult> {
       // Prefer community Settings opener if available
       try {
         const { NativeSettings, AndroidSettings } = await import('capacitor-native-settings');
-        await NativeSettings.openAndroid({ option: AndroidSettings.TetherProvisioning });
+        // Wireless = Wi-Fi / Bluetooth / Mobile networks screen, which hosts the
+        // hotspot & tethering toggle on stock Android.
+        await NativeSettings.openAndroid({ option: AndroidSettings.Wireless });
         return {
           ok: true,
           mode: 'settings',

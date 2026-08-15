@@ -148,6 +148,25 @@ export async function decodeToObjectUrl(
   return URL.createObjectURL(blob);
 }
 
+/**
+ * Decide which peers still need a song's bytes before a transfer.
+ *
+ * - Explicit peer: only that peer, unless it already received the song.
+ * - Broadcast (no peer): only peers that haven't received it yet.
+ *
+ * Returns an empty array when there is nobody left to send to — the caller
+ * should skip the transfer entirely (broadcasting to everyone again would
+ * re-download a multi-MB track on guests that already have it).
+ */
+export function selectTransferTargets(
+  peerId: string | undefined,
+  received: Set<string>,
+  connectedPeerIds: string[]
+): string[] {
+  if (peerId) return received.has(peerId) ? [] : [peerId];
+  return connectedPeerIds.filter((id) => !received.has(id));
+}
+
 /** Back-compat helpers */
 export async function fileToBase64(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await blobToArrayBuffer(file));

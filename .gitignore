@@ -8,9 +8,11 @@ coverage/
 .env.local
 .env.*.local
 !.env.example
-android/
-ios/
+# Capacitor native projects ARE committed (needed for CI + store builds).
+# Only signing secrets + synced web assets are excluded (run: npm run cap:sync).
 .idea/
+android/app/src/main/assets/public/
+ios/App/App/public/
 .vscode/
 *.swp
 

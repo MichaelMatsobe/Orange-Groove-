@@ -8,6 +8,21 @@ export default defineConfig(({ mode }) => {
   // GitHub Pages project site needs base '/Orange-Groove-/'; Vercel/Netlify use '/'
   const base = env.VITE_BASE || process.env.VITE_BASE || '/';
 
+  // Native (Capacitor) builds must bundle the real plugin packages so
+  // keep-awake / native-settings work inside the WebView. Web builds swap
+  // them for empty stubs to keep the bundle lean and avoid native-only code.
+  // Use: vite build --mode native  (see package.json "build:native")
+  const isNativeBuild = mode === 'native';
+  const emptyStub = path.resolve(__dirname, 'src/utils/empty.ts');
+  const nativePluginAliases = isNativeBuild
+    ? {}
+    : {
+        '@capacitor/core': emptyStub,
+        '@capacitor-community/keep-awake': emptyStub,
+        '@capacitor/app': emptyStub,
+        'capacitor-native-settings': emptyStub,
+      };
+
   return {
     base,
     plugins: [react(), tailwindcss()],
@@ -17,17 +32,14 @@ export default defineConfig(({ mode }) => {
         'cross-fetch': path.resolve(__dirname, 'src/utils/native-fetch.ts'),
         'isomorphic-fetch': path.resolve(__dirname, 'src/utils/native-fetch.ts'),
         'node-fetch': path.resolve(__dirname, 'src/utils/native-fetch.ts'),
-        'whatwg-fetch': path.resolve(__dirname, 'src/utils/empty.ts'),
-        firebase: path.resolve(__dirname, 'src/utils/empty.ts'),
-        'firebase/app': path.resolve(__dirname, 'src/utils/empty.ts'),
-        'firebase/database': path.resolve(__dirname, 'src/utils/empty.ts'),
-        mqtt: path.resolve(__dirname, 'src/utils/empty.ts'),
-        '@waku/sdk': path.resolve(__dirname, 'src/utils/empty.ts'),
-        '@supabase/supabase-js': path.resolve(__dirname, 'src/utils/empty.ts'),
-        // Optional Capacitor plugins — dynamically imported only on native platforms
-        '@capacitor-community/keep-awake': path.resolve(__dirname, 'src/utils/empty.ts'),
-        '@capacitor/app': path.resolve(__dirname, 'src/utils/empty.ts'),
-        'capacitor-native-settings': path.resolve(__dirname, 'src/utils/empty.ts'),
+        'whatwg-fetch': emptyStub,
+        firebase: emptyStub,
+        'firebase/app': emptyStub,
+        'firebase/database': emptyStub,
+        mqtt: emptyStub,
+        '@waku/sdk': emptyStub,
+        '@supabase/supabase-js': emptyStub,
+        ...nativePluginAliases,
       },
     },
     server: {

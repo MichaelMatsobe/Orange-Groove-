@@ -33,7 +33,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: true,
-      hmr: process.env.DISABLE_HMR !== 'true',
+      // HMR off by default: Freebuff's managed preview requires it disabled.
+      // Opt in locally with: ENABLE_HMR=true npm run dev
+      hmr: process.env.ENABLE_HMR === 'true',
     },
     preview: {
       port: 4173,

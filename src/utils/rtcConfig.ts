@@ -8,16 +8,27 @@
  * different networks entirely). Without TURN, same-LAN/hotspot parties work;
  * with it, "party from anywhere" works.
  */
-export function buildRtcConfig(): RTCConfiguration {
+
+export interface TurnEnv {
+  VITE_TURN_URL?: string;
+  VITE_TURN_USERNAME?: string;
+  VITE_TURN_CREDENTIAL?: string;
+}
+
+/**
+ * @param env injectable env (defaults to import.meta.env) — injectable so the
+ * TURN wiring can be unit-tested deterministically.
+ */
+export function buildRtcConfig(env: TurnEnv = import.meta.env): RTCConfiguration {
   const iceServers: RTCIceServer[] = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   ];
 
-  const turnUrl = import.meta.env.VITE_TURN_URL;
+  const turnUrl = env.VITE_TURN_URL;
   if (turnUrl) {
     const server: RTCIceServer = { urls: turnUrl };
-    const username = import.meta.env.VITE_TURN_USERNAME;
-    const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+    const username = env.VITE_TURN_USERNAME;
+    const credential = env.VITE_TURN_CREDENTIAL;
     if (username && credential) {
       server.username = username;
       server.credential = credential;

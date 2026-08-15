@@ -583,7 +583,9 @@ export default function App() {
         }
 
         setIsPlaying(!!state.isPlaying);
-        if (state.volume === 0) setIsMuted(true);
+        // Volume/mute stay per-device: each guest controls their own speaker.
+        // (Mirroring the host's mute one-way left guests stuck muted after the
+        // host unmuted — host volume is personal monitor level.)
 
         const audio = audioRef.current;
         if (audio && nextIndex === currentSongIndexRef.current && typeof state.timestamp === 'number') {
@@ -660,8 +662,9 @@ export default function App() {
     setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'approved' } : r)));
   const handleReject = (id: string) =>
     setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'rejected' } : r)));
+  // Confirmation happens in the UI (HostApp two-step button) — window.confirm
+  // is silently blocked inside sandboxed iframes (e.g. hosted previews).
   const handleClearRequests = (status: RequestStatus) => {
-    if (!confirm(`Clear all ${status} requests?`)) return;
     setRequests((prev) =>
       prev.map((r) => (r.status === status ? { ...r, status: 'rejected' as RequestStatus } : r))
     );

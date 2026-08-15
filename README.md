@@ -63,14 +63,14 @@ By default, peers connect directly over WebRTC (free Google STUN included), whic
 same-LAN/hotspot setups. To let guests join from **other networks** (e.g. cellular data, a
 different Wi‑Fi), add a TURN relay so WebRTC can punch through strict NAT.
 
-**Recommended provider: [Metered.ca TURN](https://www.metered.ca/turn-server)** — purpose-built
-TURN hosting with a free tier (2 GB relay / mo) and static credentials. Alternatives:
-[Cloudflare Calls](https://developers.cloudflare.com/calls/turn/) (free, but time-limited
-tokens need a small code change) or a self-hosted [coturn](https://github.com/coturn/coturn)
-container.
+**Recommended provider: [Metered TURN](https://www.metered.ca/stun-turn)** — purpose-built
+TURN hosting with a free trial (500 MB relay / mo, no credit card) and static credentials.
+Alternatives: [Cloudflare Calls](https://developers.cloudflare.com/calls/turn/) (free, but
+time-limited tokens need a small code change) or a self-hosted
+[coturn](https://github.com/coturn/coturn) container.
 
-1. Sign up at metered.ca → **TURN Server** → create a server (free plan gives
-   `global.metered.ca`).
+1. Sign up at [dashboard.metered.ca/signup?tool=turnserver](https://dashboard.metered.ca/signup?tool=turnserver)
+   → **TURN Server** → create a server (free plan gives `global.metered.ca`).
 2. Copy the **TURN URL**, **username**, and **credential** from the dashboard.
 3. Set these as build-time env vars (Vite inlines them into the client bundle):
 

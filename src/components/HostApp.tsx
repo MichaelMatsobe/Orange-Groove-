@@ -44,6 +44,7 @@ interface HostAppProps {
 export const HostApp: React.FC<HostAppProps> = (props) => {
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'requests' | 'library' | 'devices'>('dashboard');
   const [copied, setCopied] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deviceCount = (props.connectedDevices?.length ?? 0) + 1;
 
@@ -190,7 +191,30 @@ export const HostApp: React.FC<HostAppProps> = (props) => {
             <motion.div key="requests" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-lg">Queue ({props.requests.filter(r => r.status === 'pending').length} pending)</h3>
-                <button onClick={() => props.onClearAll('pending')} className="text-xs text-red-500 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20">Clear</button>
+                {confirmClear ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400">Clear all pending?</span>
+                    <button
+                      onClick={() => { props.onClearAll('pending'); setConfirmClear(false); }}
+                      className="text-xs font-semibold text-white bg-red-500 px-2 py-1 rounded-md hover:bg-red-600"
+                    >
+                      Yes, clear
+                    </button>
+                    <button
+                      onClick={() => setConfirmClear(false)}
+                      className="text-xs text-slate-500 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setConfirmClear(true); window.setTimeout(() => setConfirmClear(false), 4000); }}
+                    className="text-xs text-red-500 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
               {props.requests.length === 0 ? (
                 <div className="text-center py-12 text-slate-400"><ListMusic className="w-12 h-12 mx-auto mb-3 opacity-50" /><p>No requests yet</p></div>

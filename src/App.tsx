@@ -404,7 +404,7 @@ export default function App() {
         showToast(`Request: ${(req as SongRequest).title}`, 'info');
       });
 
-      getFileNeed((need: FileNeedMessage, peerId: string) => {
+      getFileNeed((need: any, peerId: string) => {
         if (!need?.songId) return;
         void streamLocalFile(need.songId, peerId);
       });
@@ -415,7 +415,7 @@ export default function App() {
         if (Array.isArray(newList)) setRequests(newList as SongRequest[]);
       });
 
-      getFileMeta((meta: FileMetaMessage) => {
+      getFileMeta((meta: any) => {
         if (!meta?.songId) return;
         const existing = libraryRef.current.find((s) => s.id === meta.songId);
         if (existing?.audioUrl?.startsWith('blob:')) return;
@@ -450,7 +450,7 @@ export default function App() {
         setTransferProgress((p) => ({ ...p, [meta.songId]: 0 }));
       });
 
-      getFileChunk(async (chunk: FileChunkMessage) => {
+      getFileChunk(async (chunk: any) => {
         const entry = incomingChunksRef.current.get(chunk.songId);
         if (!entry) return;
         entry.parts[chunk.index] = chunk.data;
@@ -491,7 +491,7 @@ export default function App() {
 
         if (Array.isArray(state.libraryMeta) && state.libraryMeta.length > 0) {
           setLibrary((prev) => {
-            const byId = new Map(prev.map((s) => [s.id, s]));
+            const byId = new Map<string, Song>(prev.map((s) => [s.id, s] as const));
             const merged: Song[] = state.libraryMeta.map((m: any) => {
               const existing = byId.get(m.id);
               if (m.isLocal) {

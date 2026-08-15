@@ -27,6 +27,10 @@ export default defineConfig(({ mode }) => {
         mqtt: path.resolve(__dirname, 'src/utils/empty.ts'),
         '@waku/sdk': path.resolve(__dirname, 'src/utils/empty.ts'),
         '@supabase/supabase-js': path.resolve(__dirname, 'src/utils/empty.ts'),
+        // Optional Capacitor plugins — dynamically imported only on native platforms
+        '@capacitor-community/keep-awake': path.resolve(__dirname, 'src/utils/empty.ts'),
+        '@capacitor/app': path.resolve(__dirname, 'src/utils/empty.ts'),
+        'capacitor-native-settings': path.resolve(__dirname, 'src/utils/empty.ts'),
       },
     },
     server: {
